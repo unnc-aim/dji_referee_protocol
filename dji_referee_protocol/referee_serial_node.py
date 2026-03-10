@@ -107,7 +107,7 @@ class RefereeSerialNode(Node):
         self._init_serial_ports()
 
         # ==================== 创建话题发布器 ====================
-        self.publishers: Dict[int, Any] = {}
+        self._publishers_dict: Dict[int, Any] = {}
         self._create_publishers()
 
         # ==================== QoS配置 ====================
@@ -271,7 +271,7 @@ class RefereeSerialNode(Node):
             if self.publish_all_topics or self.topic_config.get(config_key, True):
                 # 所有话题使用自定义消息类型（通过dict传输）
                 # 实际使用时可以根据需要定义自定义消息
-                self.publishers[cmd_id] = self.create_publisher(
+                self._publishers_dict[cmd_id] = self.create_publisher(
                     PoseStamped,  # 使用PoseStamped作为通用消息类型
                     f'/referee/{topic_name}',
                     10
@@ -366,7 +366,7 @@ class RefereeSerialNode(Node):
             cmd_id: 命令码ID
             data: 解析后的数据对象
         """
-        if cmd_id not in self.publishers:
+        if cmd_id not in self._publishers_dict:
             return
 
         try:
@@ -378,7 +378,7 @@ class RefereeSerialNode(Node):
             # 根据数据类型创建对应的ROS消息
             msg = self._create_ros_message(cmd_id, data, header)
             if msg:
-                self.publishers[cmd_id].publish(msg)
+                self._publishers_dict[cmd_id].publish(msg)
         except Exception as e:
             self.get_logger().error(f'发布数据错误 (cmd_id=0x{cmd_id:04X}): {e}')
 

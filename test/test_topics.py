@@ -52,9 +52,9 @@ class Colors:
     UNDERLINE = '\033[4m'
 
 
-def color_print(text: str, color: str = Colors.ENDC) -> None:
+def color_print(text: str, color: str = Colors.ENDC, end: str = '\n') -> None:
     """彩色打印"""
-    print(f"{color}{text}{Colors.ENDC}")
+    print(f"{color}{text}{Colors.ENDC}", end=end)
 
 
 def format_timestamp() -> str:
@@ -116,7 +116,7 @@ class TopicTestNode(Node):
         self.start_time: float = time.time()
 
         # 订阅器列表
-        self.subscriptions = []
+        self._subscriptions_list = []
 
         # QoS 配置
         self.qos_profile = QoSProfile(
@@ -185,7 +185,7 @@ class TopicTestNode(Node):
                     lambda msg, tn=full_topic, desc=description: self._topic_callback(msg, tn, desc),
                     self.qos_profile
                 )
-                self.subscriptions.append(sub)
+                self._subscriptions_list.append(sub)
             except Exception as e:
                 self.get_logger().warn(f'无法订阅话题 {full_topic}: {e}')
 

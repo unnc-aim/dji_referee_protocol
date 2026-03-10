@@ -73,9 +73,9 @@ class Colors:
     UNDERLINE = '\033[4m'
 
 
-def color_print(text: str, color: str = Colors.ENDC) -> None:
+def color_print(text: str, color: str = Colors.ENDC, end: str = '\n') -> None:
     """彩色打印"""
-    print(f"{color}{text}{Colors.ENDC}")
+    print(f"{color}{text}{Colors.ENDC}", end=end)
 
 
 def format_timestamp() -> str:
