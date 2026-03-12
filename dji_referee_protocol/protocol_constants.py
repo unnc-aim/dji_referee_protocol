@@ -133,115 +133,115 @@ class CommandID(IntEnum):
     # ==================== 常规链路数据（服务器→机器人）====================
 
     # 比赛状态数据（1Hz）
-    GAME_STATUS: int = 0x0001
+    GAME_STATUS = 0x0001
 
     # 比赛结果数据（比赛结束触发）
-    GAME_RESULT: int = 0x0002
+    GAME_RESULT = 0x0002
 
     # 机器人血量数据（3Hz）
-    ROBOT_HP: int = 0x0003
+    ROBOT_HP = 0x0003
 
     # 场地事件数据（1Hz）
-    FIELD_EVENT: int = 0x0101
+    FIELD_EVENT = 0x0101
 
     # 裁判警告数据（1Hz或判罚触发）
-    REFEREE_WARNING: int = 0x0104
+    REFEREE_WARNING = 0x0104
 
     # 飞镖发射相关数据（1Hz）
-    DART_LAUNCH_DATA: int = 0x0105
+    DART_LAUNCH_DATA = 0x0105
 
     # 机器人性能体系数据（10Hz）
-    ROBOT_PERFORMANCE: int = 0x0201
+    ROBOT_PERFORMANCE = 0x0201
 
     # 实时底盘缓冲能量和射击热量数据（10Hz）
-    ROBOT_HEAT: int = 0x0202
+    ROBOT_HEAT = 0x0202
 
     # 机器人位置数据（1Hz）
-    ROBOT_POSITION: int = 0x0203
+    ROBOT_POSITION = 0x0203
 
     # 机器人增益和底盘能量数据（3Hz）
-    ROBOT_BUFF: int = 0x0204
+    ROBOT_BUFF = 0x0204
 
     # 伤害状态数据（伤害发生触发）
-    DAMAGE_STATE: int = 0x0206
+    DAMAGE_STATE = 0x0206
 
     # 实时射击数据（弹丸发射触发）
-    SHOOT_DATA: int = 0x0207
+    SHOOT_DATA = 0x0207
 
     # 允许发弹量（10Hz）
-    ALLOWED_SHOOT: int = 0x0208
+    ALLOWED_SHOOT = 0x0208
 
     # 机器人RFID模块状态（3Hz）
-    RFID_STATUS: int = 0x0209
+    RFID_STATUS = 0x0209
 
     # 飞镖选手端指令数据（3Hz）
-    DART_OPERATOR_CMD: int = 0x020A
+    DART_OPERATOR_CMD = 0x020A
 
     # 地面机器人位置数据（1Hz，发送给哨兵）
-    GROUND_ROBOT_POSITION: int = 0x020B
+    GROUND_ROBOT_POSITION = 0x020B
 
     # 雷达标记进度数据（1Hz，发送给雷达）
-    RADAR_MARK_PROGRESS: int = 0x020C
+    RADAR_MARK_PROGRESS = 0x020C
 
     # 哨兵自主决策信息同步（1Hz）
-    SENTRY_DECISION_SYNC: int = 0x020D
+    SENTRY_DECISION_SYNC = 0x020D
 
     # 雷达自主决策信息同步（1Hz）
-    RADAR_DECISION_SYNC: int = 0x020E
+    RADAR_DECISION_SYNC = 0x020E
 
     # 机器人交互数据（30Hz上限）
-    ROBOT_INTERACTION: int = 0x0301
+    ROBOT_INTERACTION = 0x0301
 
     # 选手端小地图交互数据（触发发送）
-    MAP_CLICK_DATA: int = 0x0303
+    MAP_CLICK_DATA = 0x0303
 
     # 选手端小地图接收雷达数据（5Hz上限）
-    MAP_RADAR_DATA: int = 0x0305
+    MAP_RADAR_DATA = 0x0305
 
     # 选手端小地图接收路径数据（1Hz上限）
-    MAP_PATH_DATA: int = 0x0307
+    MAP_PATH_DATA = 0x0307
 
     # 选手端小地图接收机器人数据（3Hz上限）
-    MAP_ROBOT_DATA: int = 0x0308
+    MAP_ROBOT_DATA = 0x0308
 
     # ==================== 图传链路数据 ====================
 
     # 自定义控制器与机器人交互数据（30Hz上限）
-    CUSTOM_CONTROLLER_TO_ROBOT: int = 0x0302
+    CUSTOM_CONTROLLER_TO_ROBOT = 0x0302
 
     # 自定义控制器接收机器人数据（10Hz上限）
-    ROBOT_TO_CUSTOM_CONTROLLER: int = 0x0309
+    ROBOT_TO_CUSTOM_CONTROLLER = 0x0309
 
     # 机器人发送给自定义客户端的数据（50Hz上限）
-    ROBOT_TO_CUSTOM_CLIENT: int = 0x0310
+    ROBOT_TO_CUSTOM_CLIENT = 0x0310
 
     # 自定义客户端发送给机器人的自定义指令（75Hz上限）
-    CUSTOM_CLIENT_TO_ROBOT: int = 0x0311
+    CUSTOM_CLIENT_TO_ROBOT = 0x0311
 
     # ==================== 非链路数据 ====================
 
     # 自定义控制器与选手端交互数据
-    CUSTOM_CONTROLLER_TO_OPERATOR: int = 0x0306
+    CUSTOM_CONTROLLER_TO_OPERATOR = 0x0306
 
     # ==================== 雷达无线链路数据（信号发射源→雷达）====================
 
     # 对方机器人的位置坐标（10Hz上限）
-    ENEMY_POSITION: int = 0x0A01
+    ENEMY_POSITION = 0x0A01
 
     # 对方机器人的血量信息（10Hz上限）
-    ENEMY_HP: int = 0x0A02
+    ENEMY_HP = 0x0A02
 
     # 对方机器人的剩余发弹量信息（10Hz上限）
-    ENEMY_AMMO: int = 0x0A03
+    ENEMY_AMMO = 0x0A03
 
     # 对方队伍的宏观状态信息（10Hz上限）
-    ENEMY_TEAM_STATUS: int = 0x0A04
+    ENEMY_TEAM_STATUS = 0x0A04
 
     # 对方各机器人当前增益效果（10Hz上限）
-    ENEMY_BUFF: int = 0x0A05
+    ENEMY_BUFF = 0x0A05
 
     # 对方干扰波密钥（10Hz上限）
-    ENEMY_JAMMING_KEY: int = 0x0A06
+    ENEMY_JAMMING_KEY = 0x0A06
 
 
 class DataLength:
@@ -304,11 +304,11 @@ class GameType(IntEnum):
     用于解析0x0001命令码中的比赛类型字段。
     """
 
-    ROBO_MASTER: int = 1          # RoboMaster机甲大师超级对抗赛
-    ICRA_RM: int = 2              # RoboMaster机甲大师高校单项赛
-    ICRA_ROBO_MASTER: int = 3     # ICRA RoboMaster高校人工智能挑战赛
-    RMUL_3V3: int = 4             # RoboMaster机甲大师高校联盟赛3V3对抗
-    RMUL_INFANTRY: int = 5        # RoboMaster机甲大师高校联盟赛步兵对抗
+    ROBO_MASTER = 1          # RoboMaster机甲大师超级对抗赛
+    ICRA_RM = 2              # RoboMaster机甲大师高校单项赛
+    ICRA_ROBO_MASTER = 3     # ICRA RoboMaster高校人工智能挑战赛
+    RMUL_3V3 = 4             # RoboMaster机甲大师高校联盟赛3V3对抗
+    RMUL_INFANTRY = 5        # RoboMaster机甲大师高校联盟赛步兵对抗
 
 
 class GameStage(IntEnum):
@@ -319,12 +319,12 @@ class GameStage(IntEnum):
     用于解析0x0001命令码中的比赛阶段字段。
     """
 
-    NOT_STARTED: int = 0          # 未开始比赛
-    PREPARING: int = 1            # 准备阶段
-    SELF_CHECK: int = 2           # 十五秒裁判系统自检阶段
-    COUNTDOWN: int = 3            # 五秒倒计时
-    IN_GAME: int = 4              # 比赛中
-    SETTLING: int = 5             # 比赛结算中
+    NOT_STARTED = 0          # 未开始比赛
+    PREPARING = 1            # 准备阶段
+    SELF_CHECK = 2           # 十五秒裁判系统自检阶段
+    COUNTDOWN = 3            # 五秒倒计时
+    IN_GAME = 4              # 比赛中
+    SETTLING = 5             # 比赛结算中
 
 
 class GameResultType(IntEnum):
@@ -335,9 +335,9 @@ class GameResultType(IntEnum):
     用于解析0x0002命令码。
     """
 
-    DRAW: int = 0          # 平局
-    RED_WIN: int = 1       # 红方胜利
-    BLUE_WIN: int = 2      # 蓝方胜利
+    DRAW = 0          # 平局
+    RED_WIN = 1       # 红方胜利
+    BLUE_WIN = 2      # 蓝方胜利
 
 
 class PenaltyLevel(IntEnum):
@@ -348,10 +348,10 @@ class PenaltyLevel(IntEnum):
     用于解析0x0104命令码中的判罚等级字段。
     """
 
-    DOUBLE_YELLOW: int = 1     # 双方黄牌
-    YELLOW: int = 2            # 黄牌
-    RED: int = 3               # 红牌
-    LOSE: int = 4              # 判负
+    DOUBLE_YELLOW = 1     # 双方黄牌
+    YELLOW = 2            # 黄牌
+    RED = 3               # 红牌
+    LOSE = 4              # 判负
 
 
 class DamageType(IntEnum):
@@ -362,9 +362,9 @@ class DamageType(IntEnum):
     用于解析0x0206命令码中的伤害类型字段。
     """
 
-    PROJECTILE: int = 0        # 装甲模块被弹丸攻击导致扣血
-    MODULE_OFFLINE: int = 1    # 装甲模块或超级电容管理模块离线导致扣血
-    IMPACT: int = 5            # 装甲模块受到撞击导致扣血
+    PROJECTILE = 0        # 装甲模块被弹丸攻击导致扣血
+    MODULE_OFFLINE = 1    # 装甲模块或超级电容管理模块离线导致扣血
+    IMPACT = 5            # 装甲模块受到撞击导致扣血
 
 
 class ProjectileType(IntEnum):
@@ -375,8 +375,8 @@ class ProjectileType(IntEnum):
     用于解析0x0207命令码中的弹丸类型字段。
     """
 
-    AMMO_17MM: int = 1         # 17mm弹丸
-    AMMO_42MM: int = 2         # 42mm弹丸
+    AMMO_17MM = 1         # 17mm弹丸
+    AMMO_42MM = 2         # 42mm弹丸
 
 
 class ShooterID(IntEnum):
@@ -387,9 +387,9 @@ class ShooterID(IntEnum):
     用于解析0x0207命令码中的发射机构ID字段。
     """
 
-    SHOOTER_17MM: int = 1      # 17mm发射机构
-    RESERVED: int = 2          # 保留位
-    SHOOTER_42MM: int = 3      # 42mm发射机构
+    SHOOTER_17MM = 1      # 17mm发射机构
+    RESERVED = 2          # 保留位
+    SHOOTER_42MM = 3      # 42mm发射机构
 
 
 class DartTarget(IntEnum):
@@ -400,12 +400,12 @@ class DartTarget(IntEnum):
     用于解析0x0105命令码中的目标字段。
     """
 
-    NONE: int = 0                  # 未选定/选定前哨站
-    OUTPOST: int = 1               # 击中前哨站
-    BASE_FIXED: int = 2            # 击中基地固定目标
-    BASE_RANDOM_FIXED: int = 3     # 击中基地随机固定目标
-    BASE_RANDOM_MOVING: int = 4    # 击中基地随机移动目标
-    BASE_END_MOVING: int = 5       # 击中基地末端移动目标
+    NONE = 0                  # 未选定/选定前哨站
+    OUTPOST = 1               # 击中前哨站
+    BASE_FIXED = 2            # 击中基地固定目标
+    BASE_RANDOM_FIXED = 3     # 击中基地随机固定目标
+    BASE_RANDOM_MOVING = 4    # 击中基地随机移动目标
+    BASE_END_MOVING = 5       # 击中基地末端移动目标
 
 
 class SentryPosture(IntEnum):
@@ -416,9 +416,9 @@ class SentryPosture(IntEnum):
     用于解析0x020D命令码中的姿态字段。
     """
 
-    ATTACK: int = 1      # 进攻姿态
-    DEFENSE: int = 2     # 防御姿态
-    MOVE: int = 3        # 移动姿态
+    ATTACK = 1      # 进攻姿态
+    DEFENSE = 2     # 防御姿态
+    MOVE = 3        # 移动姿态
 
 
 class RobotID(IntEnum):
@@ -433,30 +433,30 @@ class RobotID(IntEnum):
     """
 
     # 红方机器人
-    RED_HERO: int = 1           # 红方英雄机器人
-    RED_ENGINEER: int = 2       # 红方工程机器人
-    RED_INFANTRY_3: int = 3     # 红方3号步兵机器人
-    RED_INFANTRY_4: int = 4     # 红方4号步兵机器人
-    RED_INFANTRY_5: int = 5     # 红方5号步兵机器人（保留）
-    RED_AERIAL: int = 6         # 红方空中机器人
-    RED_SENTRY: int = 7         # 红方哨兵机器人
-    RED_DART: int = 8           # 红方飞镖
-    RED_RADAR: int = 9          # 红方雷达
-    RED_OUTPOST: int = 10       # 红方前哨站
-    RED_BASE: int = 11          # 红方基地
+    RED_HERO = 1           # 红方英雄机器人
+    RED_ENGINEER = 2       # 红方工程机器人
+    RED_INFANTRY_3 = 3     # 红方3号步兵机器人
+    RED_INFANTRY_4 = 4     # 红方4号步兵机器人
+    RED_INFANTRY_5 = 5     # 红方5号步兵机器人（保留）
+    RED_AERIAL = 6         # 红方空中机器人
+    RED_SENTRY = 7         # 红方哨兵机器人
+    RED_DART = 8           # 红方飞镖
+    RED_RADAR = 9          # 红方雷达
+    RED_OUTPOST = 10       # 红方前哨站
+    RED_BASE = 11          # 红方基地
 
     # 蓝方机器人
-    BLUE_HERO: int = 101        # 蓝方英雄机器人
-    BLUE_ENGINEER: int = 102    # 蓝方工程机器人
-    BLUE_INFANTRY_3: int = 103  # 蓝方3号步兵机器人
-    BLUE_INFANTRY_4: int = 104  # 蓝方4号步兵机器人
-    BLUE_INFANTRY_5: int = 105  # 蓝方5号步兵机器人（保留）
-    BLUE_AERIAL: int = 106      # 蓝方空中机器人
-    BLUE_SENTRY: int = 107      # 蓝方哨兵机器人
-    BLUE_DART: int = 108        # 蓝方飞镖
-    BLUE_RADAR: int = 109       # 蓝方雷达
-    BLUE_OUTPOST: int = 110     # 蓝方前哨站
-    BLUE_BASE: int = 111        # 蓝方基地
+    BLUE_HERO = 101        # 蓝方英雄机器人
+    BLUE_ENGINEER = 102    # 蓝方工程机器人
+    BLUE_INFANTRY_3 = 103  # 蓝方3号步兵机器人
+    BLUE_INFANTRY_4 = 104  # 蓝方4号步兵机器人
+    BLUE_INFANTRY_5 = 105  # 蓝方5号步兵机器人（保留）
+    BLUE_AERIAL = 106      # 蓝方空中机器人
+    BLUE_SENTRY = 107      # 蓝方哨兵机器人
+    BLUE_DART = 108        # 蓝方飞镖
+    BLUE_RADAR = 109       # 蓝方雷达
+    BLUE_OUTPOST = 110     # 蓝方前哨站
+    BLUE_BASE = 111        # 蓝方基地
 
 
 class OperatorClientID(IntEnum):
@@ -471,23 +471,23 @@ class OperatorClientID(IntEnum):
     """
 
     # 红方选手端
-    RED_HERO: int = 0x0101          # 红方英雄机器人选手端
-    RED_ENGINEER: int = 0x0102      # 红方工程机器人选手端
-    RED_INFANTRY_3: int = 0x0103    # 红方3号步兵机器人选手端
-    RED_INFANTRY_4: int = 0x0104    # 红方4号步兵机器人选手端
-    RED_INFANTRY_5: int = 0x0105    # 红方5号步兵机器人选手端
-    RED_AERIAL: int = 0x0106        # 红方空中机器人选手端
+    RED_HERO = 0x0101          # 红方英雄机器人选手端
+    RED_ENGINEER = 0x0102      # 红方工程机器人选手端
+    RED_INFANTRY_3 = 0x0103    # 红方3号步兵机器人选手端
+    RED_INFANTRY_4 = 0x0104    # 红方4号步兵机器人选手端
+    RED_INFANTRY_5 = 0x0105    # 红方5号步兵机器人选手端
+    RED_AERIAL = 0x0106        # 红方空中机器人选手端
 
     # 蓝方选手端
-    BLUE_HERO: int = 0x0165         # 蓝方英雄机器人选手端
-    BLUE_ENGINEER: int = 0x0166     # 蓝方工程机器人选手端
-    BLUE_INFANTRY_3: int = 0x0167   # 蓝方3号步兵机器人选手端
-    BLUE_INFANTRY_4: int = 0x0168   # 蓝方4号步兵机器人选手端
-    BLUE_INFANTRY_5: int = 0x0169   # 蓝方5号步兵机器人选手端
-    BLUE_AERIAL: int = 0x016A       # 蓝方空中机器人选手端
+    BLUE_HERO = 0x0165         # 蓝方英雄机器人选手端
+    BLUE_ENGINEER = 0x0166     # 蓝方工程机器人选手端
+    BLUE_INFANTRY_3 = 0x0167   # 蓝方3号步兵机器人选手端
+    BLUE_INFANTRY_4 = 0x0168   # 蓝方4号步兵机器人选手端
+    BLUE_INFANTRY_5 = 0x0169   # 蓝方5号步兵机器人选手端
+    BLUE_AERIAL = 0x016A       # 蓝方空中机器人选手端
 
     # 裁判系统服务器（用于哨兵和雷达自主决策指令）
-    SERVER: int = 0x8080
+    SERVER = 0x8080
 
 
 class UnpackStep(IntEnum):
