@@ -18,10 +18,13 @@
     -v, --verbose: 显示详细信息
 """
 
+import serial.tools.list_ports
+import serial
+from dji_referee_protocol.protocol_constants import FrameConstants
+from dji_referee_protocol.crc_utils import CRCUtils
 import sys
 import time
 import argparse
-import signal
 from datetime import datetime
 from typing import Optional
 
@@ -29,34 +32,8 @@ from typing import Optional
 sys.path.insert(0, '.')
 
 # 尝试导入本地模块
-try:
-    from dji_referee_protocol.crc_utils import CRCUtils
-    from dji_referee_protocol.protocol_constants import (
-        CommandID, FrameConstants, SerialConfig
-    )
-    from dji_referee_protocol.data_types import (
-        GameStatus, GameResult, RobotHP, FieldEvent, RefereeWarning,
-        DartLaunchData, RobotPerformance, RobotHeat, RobotPosition,
-        RobotBuff, DamageState, ShootData, AllowedShoot, RFIDStatus,
-        DartOperatorCmd, GroundRobotPosition, RadarMarkProgress,
-        SentryDecisionSync, RadarDecisionSync, MapClickData,
-        MapRadarData, MapPathData, MapRobotData, CustomControllerData,
-        EnemyPosition, EnemyHP, EnemyAmmo, EnemyTeamStatus, EnemyBuff, EnemyJammingKey
-    )
-    LOCAL_MODULES_AVAILABLE = True
-except ImportError as e:
-    LOCAL_MODULES_AVAILABLE = False
-    print(f"警告：无法导入本地模块: {e}")
-    print("请确保在项目根目录下运行此脚本")
 
 # 尝试导入串口库
-try:
-    import serial
-    import serial.tools.list_ports
-    SERIAL_AVAILABLE = True
-except ImportError:
-    SERIAL_AVAILABLE = False
-    print("错误：无法导入 pyserial，请安装：pip install pyserial")
 
 
 # 颜色输出
@@ -192,10 +169,6 @@ class SerialDirectTester:
 
     def _open_serial(self) -> bool:
         """打开串口"""
-        if not SERIAL_AVAILABLE:
-            print("错误：pyserial 未安装")
-            return False
-
         try:
             self.serial = serial.Serial(
                 port=self.port,
@@ -264,9 +237,9 @@ class SerialDirectTester:
                 self.index += 1
 
                 max_data_len = (FrameConstants.MAX_FRAME_SIZE -
-                               FrameConstants.FRAME_HEADER_LENGTH -
-                               FrameConstants.CMD_ID_LENGTH -
-                               FrameConstants.FRAME_TAIL_LENGTH)
+                                FrameConstants.FRAME_HEADER_LENGTH -
+                                FrameConstants.CMD_ID_LENGTH -
+                                FrameConstants.FRAME_TAIL_LENGTH)
                 if self.data_len < max_data_len:
                     self.unpack_step = 3
                 else:
@@ -286,7 +259,8 @@ class SerialDirectTester:
 
                 if self.index == FrameConstants.FRAME_HEADER_LENGTH:
                     if CRCUtils.verify_crc8_check_sum(
-                        bytes(self.protocol_packet[:FrameConstants.FRAME_HEADER_LENGTH]),
+                        bytes(
+                            self.protocol_packet[:FrameConstants.FRAME_HEADER_LENGTH]),
                         FrameConstants.FRAME_HEADER_LENGTH
                     ):
                         self.unpack_step = 5
@@ -299,9 +273,9 @@ class SerialDirectTester:
             elif self.unpack_step == 5:
                 # 读取数据段和CRC16
                 total_len = (FrameConstants.FRAME_HEADER_LENGTH +
-                            FrameConstants.CMD_ID_LENGTH +
-                            self.data_len +
-                            FrameConstants.FRAME_TAIL_LENGTH)
+                             FrameConstants.CMD_ID_LENGTH +
+                             self.data_len +
+                             FrameConstants.FRAME_TAIL_LENGTH)
 
                 if self.index < total_len:
                     self.protocol_packet[self.index] = byte
@@ -345,7 +319,8 @@ class SerialDirectTester:
         timestamp = format_timestamp()
         color_print(f"\n[{timestamp}]", Colors.CYAN, end=' ')
         color_print(f"{cmd_name} (0x{cmd_id:04X})", Colors.GREEN + Colors.BOLD)
-        color_print(f"  频率: {freq} | 长度: {self.data_len} 字节 | 累计: {self.cmd_counts[cmd_id]}", Colors.YELLOW)
+        color_print(
+            f"  频率: {freq} | 长度: {self.data_len} 字节 | 累计: {self.cmd_counts[cmd_id]}", Colors.YELLOW)
 
         # 打印数据
         if self.verbose:
@@ -371,8 +346,10 @@ class SerialDirectTester:
                 stage_remain_time = struct.unpack('<H', data[1:3])[0]
                 sync_timestamp = struct.unpack('<Q', data[3:11])[0]
 
-                game_types = {1: "超级对抗赛", 2: "高校单项赛", 3: "ICRA挑战赛", 4: "联盟赛3V3", 5: "联盟赛步兵"}
-                stages = {0: "未开始", 1: "准备阶段", 2: "自检阶段", 3: "倒计时", 4: "比赛中", 5: "结算中"}
+                game_types = {1: "超级对抗赛", 2: "高校单项赛",
+                              3: "ICRA挑战赛", 4: "联盟赛3V3", 5: "联盟赛步兵"}
+                stages = {0: "未开始", 1: "准备阶段", 2: "自检阶段",
+                          3: "倒计时", 4: "比赛中", 5: "结算中"}
 
                 print(f"  比赛类型: {game_types.get(game_type, game_type)}")
                 print(f"  比赛阶段: {stages.get(game_progress, game_progress)}")
@@ -388,10 +365,14 @@ class SerialDirectTester:
                 # 机器人血量
                 import struct
                 hp_values = struct.unpack('<16H', data[:32])
-                print(f"  红方英雄: {hp_values[0]} | 工程: {hp_values[1]} | 3号步兵: {hp_values[2]} | 4号步兵: {hp_values[3]}")
-                print(f"  红方哨兵: {hp_values[5]} | 前哨站: {hp_values[6]} | 基地: {hp_values[7]}")
-                print(f"  蓝方英雄: {hp_values[8]} | 工程: {hp_values[9]} | 3号步兵: {hp_values[10]} | 4号步兵: {hp_values[11]}")
-                print(f"  蓝方哨兵: {hp_values[13]} | 前哨站: {hp_values[14]} | 基地: {hp_values[15]}")
+                print(
+                    f"  红方英雄: {hp_values[0]} | 工程: {hp_values[1]} | 3号步兵: {hp_values[2]} | 4号步兵: {hp_values[3]}")
+                print(
+                    f"  红方哨兵: {hp_values[5]} | 前哨站: {hp_values[6]} | 基地: {hp_values[7]}")
+                print(
+                    f"  蓝方英雄: {hp_values[8]} | 工程: {hp_values[9]} | 3号步兵: {hp_values[10]} | 4号步兵: {hp_values[11]}")
+                print(
+                    f"  蓝方哨兵: {hp_values[13]} | 前哨站: {hp_values[14]} | 基地: {hp_values[15]}")
 
             elif cmd_id == 0x0201:
                 # 机器人性能
@@ -399,11 +380,13 @@ class SerialDirectTester:
                 robot_id = data[0]
                 robot_level = data[1]
                 current_hp, maximum_hp = struct.unpack('<HH', data[2:6])
-                shooter_cooling, shooter_limit, chassis_limit = struct.unpack('<HHH', data[6:12])
+                shooter_cooling, shooter_limit, chassis_limit = struct.unpack(
+                    '<HHH', data[6:12])
 
                 print(f"  机器人ID: {robot_id} | 等级: {robot_level}")
                 print(f"  血量: {current_hp}/{maximum_hp}")
-                print(f"  枪口冷却: {shooter_cooling} | 热量上限: {shooter_limit} | 功率限制: {chassis_limit}W")
+                print(
+                    f"  枪口冷却: {shooter_cooling} | 热量上限: {shooter_limit} | 功率限制: {chassis_limit}W")
 
             elif cmd_id == 0x0202:
                 # 实时热量
@@ -426,7 +409,8 @@ class SerialDirectTester:
                 armor_id = data[0] & 0x0F
                 damage_type = (data[0] >> 4) & 0x0F
                 damage_types = {0: "弹丸攻击", 1: "模块离线", 5: "撞击"}
-                print(f"  装甲ID: {armor_id} | 伤害类型: {damage_types.get(damage_type, damage_type)}")
+                print(
+                    f"  装甲ID: {armor_id} | 伤害类型: {damage_types.get(damage_type, damage_type)}")
 
             elif cmd_id == 0x0207:
                 # 射击数据
@@ -435,13 +419,15 @@ class SerialDirectTester:
                 shooter_id = data[1]
                 frequency = data[2]
                 initial_speed = struct.unpack('<f', data[3:7])[0]
-                print(f"  弹丸: {'17mm' if bullet_type == 1 else '42mm'} | 发射器: {shooter_id}")
+                print(
+                    f"  弹丸: {'17mm' if bullet_type == 1 else '42mm'} | 发射器: {shooter_id}")
                 print(f"  射速: {frequency}Hz | 初速: {initial_speed:.2f}m/s")
 
             elif cmd_id == 0x0208:
                 # 允许发弹量
                 import struct
-                ammo_17mm, ammo_42mm, gold, fortress = struct.unpack('<HHHH', data[:8])
+                ammo_17mm, ammo_42mm, gold, fortress = struct.unpack(
+                    '<HHHH', data[:8])
                 print(f"  17mm发弹量: {ammo_17mm} | 42mm发弹量: {ammo_42mm}")
                 print(f"  金币: {gold} | 堡垒储备: {fortress}")
 
@@ -474,20 +460,18 @@ class SerialDirectTester:
         color_print("\n  各命令码统计:", Colors.BOLD)
         print("-" * 70)
 
-        sorted_cmds = sorted(self.cmd_counts.items(), key=lambda x: x[1], reverse=True)
+        sorted_cmds = sorted(self.cmd_counts.items(),
+                             key=lambda x: x[1], reverse=True)
         for cmd_id, count in sorted_cmds:
             desc = self.CMD_DESCRIPTIONS.get(cmd_id, ("未知", ""))
-            color_print(f"  0x{cmd_id:04X} {desc[0]}: {count}", Colors.GREEN if count > 0 else Colors.RED)
+            color_print(
+                f"  0x{cmd_id:04X} {desc[0]}: {count}", Colors.GREEN if count > 0 else Colors.RED)
 
         print("=" * 70 + "\n")
 
 
 def list_serial_ports() -> None:
     """列出所有可用串口"""
-    if not SERIAL_AVAILABLE:
-        print("错误：pyserial 未安装")
-        return
-
     ports = serial.tools.list_ports.comports()
     if ports:
         print("\n可用串口:")
@@ -511,13 +495,13 @@ def main() -> None:
     )
 
     parser.add_argument('serial_port', nargs='?', default='/dev/ttyUSB0',
-                       help='串口设备路径（默认：/dev/ttyUSB0）')
+                        help='串口设备路径（默认：/dev/ttyUSB0）')
     parser.add_argument('-b', '--baud', type=int, default=115200,
-                       help='波特率（默认：115200）')
+                        help='波特率（默认：115200）')
     parser.add_argument('-v', '--verbose', action='store_true',
-                       help='显示详细信息')
+                        help='显示详细信息')
     parser.add_argument('--list', action='store_true',
-                       help='列出所有可用串口')
+                        help='列出所有可用串口')
 
     args = parser.parse_args()
 
@@ -525,15 +509,6 @@ def main() -> None:
     if args.list:
         list_serial_ports()
         return
-
-    # 检查模块
-    if not LOCAL_MODULES_AVAILABLE:
-        print("错误：无法导入本地模块，请在项目根目录下运行")
-        sys.exit(1)
-
-    if not SERIAL_AVAILABLE:
-        print("错误：pyserial 未安装，请运行：pip install pyserial")
-        sys.exit(1)
 
     # 启动测试
     tester = SerialDirectTester(

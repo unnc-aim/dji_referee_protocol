@@ -182,7 +182,8 @@ class TopicTestNode(Node):
                 sub = self.create_subscription(
                     PoseStamped,
                     full_topic,
-                    lambda msg, tn=full_topic, desc=description: self._topic_callback(msg, tn, desc),
+                    lambda msg, tn=full_topic, desc=description: self._topic_callback(
+                        msg, tn, desc),
                     self.qos_profile
                 )
                 self._subscriptions_list.append(sub)
@@ -258,6 +259,7 @@ class TopicTestNode(Node):
 def main() -> None:
     """主函数"""
     rclpy.init()
+    node = None
 
     try:
         node = TopicTestNode()
@@ -271,7 +273,7 @@ def main() -> None:
 
     finally:
         # 打印统计信息
-        if 'node' in dir():
+        if node is not None:
             node.print_statistics()
             node.destroy_node()
 
