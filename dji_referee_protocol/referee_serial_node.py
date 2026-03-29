@@ -6,39 +6,79 @@
 2. 使用协议解析器解析数据
 3. 将解析后的数据发布为独立的ROS 2话题
 4. 支持通过YAML配置文件控制每个话题的发布
+5. 使用自定义消息类型替代JSON序列化
+6. 支持glob模式匹配配置
 
 使用方法：
     ros2 run dji_referee_protocol referee_serial_node
 
 参数：
-    - serial_port_normal: 常规链路串口设备路径（默认：/dev/ttyUSB0）
-    - serial_port_video: 图传链路串口设备路径（默认：/dev/ttyUSB1）
+    - serial_port: 串口设备路径（默认：/dev/ttyUSB0）
     - config_file: 配置文件路径（默认：config/topic_config.yaml）
 
-发布话题：
-    - /referee/game_status (GameStatus)
-    - /referee/game_result (GameResult)
-    - /referee/robot_hp (RobotHP)
-    - ... 等其他话题
+Glob模式配置示例：
+    '/referee/common/*': false      # 禁用所有 /referee/common/ 下的话题
+    '/referee/common/game_status': true   # 但启用 game_status
+    '/referee/parsed/**': true      # 启用所有 /referee/parsed/ 下的话题（包括子目录）
+
+发布话题（原始数据）：
+    /referee/common/game_status (GameStatus)
+    /referee/common/robot_hp (RobotHP)
+    ... 等其他话题
+
+发布话题（解析后数据）：
+    /referee/parsed/common/constraints (Constraints)
+    /referee/parsed/common/self_color (SelfColor)
 
 协议版本：V1.2.0
 兼容ROS 2版本：Humble
 """
 
+import fnmatch
 import threading
 import time
-import json
-from typing import Dict, Any, Optional
-from dataclasses import asdict, is_dataclass
+from typing import Dict, Any, Optional, List, Tuple
 
 # ROS 2 导入
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
-from std_msgs.msg import Header
-from std_msgs.msg import Float32MultiArray
-from std_msgs.msg import String
-from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
+
+# 自定义消息导入
+from dji_referee_protocol.msg import (
+    Constants,
+    GameStatus,
+    GameResult,
+    RobotHP,
+    FieldEvent,
+    RefereeWarning,
+    DartLaunchData,
+    RobotPerformance,
+    RobotHeat,
+    RobotPosition,
+    RobotBuff,
+    DamageState,
+    ShootData,
+    AllowedShoot,
+    RFIDStatus,
+    DartOperatorCmd,
+    GroundRobotPosition,
+    RadarMarkProgress,
+    SentryDecisionSync,
+    RadarDecisionSync,
+    MapClickData,
+    MapRadarData,
+    MapPathData,
+    MapRobotData,
+    EnemyPosition,
+    EnemyHP,
+    EnemyAmmo,
+    EnemyTeamStatus,
+    EnemyBuff,
+    EnemyJammingKey,
+    Constraints,
+    SelfColor,
+)
 
 # 尝试导入串口库
 import serial
@@ -46,7 +86,6 @@ import serial
 # 本地模块导入
 from .protocol_constants import CommandID, SerialConfig
 from .protocol_parser import ProtocolParser
-from .crc_utils import CRCUtils
 
 
 class RefereeSerialNode(Node):
@@ -54,104 +93,65 @@ class RefereeSerialNode(Node):
     裁判系统串口读取节点
 
     从裁判系统串口读取数据，解析后发布为ROS 2话题。
-
-    Attributes:
-        parser: 协议解析器实例
-        serial_normal: 常规链路串口实例
-        serial_video: 图传链路串口实例
-        publishers: 话题发布器字典
-        topic_config: 话题配置字典
-        running: 节点运行标志
+    使用自定义消息类型，发布到/referee/common/和/referee/parsed/common/命名空间。
     """
 
     def __init__(self) -> None:
-        """
-        初始化裁判系统串口读取节点
-
-        - 声明ROS 2参数
-        - 加载配置文件
-        - 初始化串口
-        - 创建话题发布器
-        """
         super().__init__('referee_serial_node')
 
         # ==================== 声明参数 ====================
-        self.declare_parameter('serial_port_normal', '/dev/ttyUSB0')
-        self.declare_parameter('serial_port_video', '/dev/ttyUSB1')
-        self.declare_parameter('serial_baud_normal',
-                               SerialConfig.NORMAL_BAUDRATE)
-        self.declare_parameter('serial_baud_video',
-                               SerialConfig.VIDEO_TRANSMISSION_BAUDRATE)
+        self.declare_parameter('serial_port', '/dev/ttyUSB0')
+        self.declare_parameter('serial_baud', SerialConfig.NORMAL_BAUDRATE)
         self.declare_parameter('config_file', '')
         self.declare_parameter('publish_all_topics', True)
         self.declare_parameter('serial_auto_baud_scan', True)
         self.declare_parameter('serial_no_data_reopen_sec', 3.0)
-        self.declare_parameter(
-            'referee_constraint_topic', '/referee/constraints')
-        self.declare_parameter(
-            'referee_self_color_topic', '/referee/self_color')
         self.declare_parameter('heat_lock_margin', 15.0)
         self.declare_parameter('power_high_ratio', 0.9)
         self.declare_parameter('power_hard_ratio', 1.0)
         self.declare_parameter('min_speed_scale', 0.35)
 
         # 获取参数
-        self.serial_port_normal = self.get_parameter(
-            'serial_port_normal').value
-        self.serial_port_video = self.get_parameter('serial_port_video').value
-        self.serial_baud_normal = self.get_parameter(
-            'serial_baud_normal').value
-        self.serial_baud_video = self.get_parameter('serial_baud_video').value
+        self.serial_port_path = self.get_parameter('serial_port').value
+        self.serial_baud = self.get_parameter('serial_baud').value
         self.config_file = self.get_parameter('config_file').value
-        self.publish_all_topics = self.get_parameter(
-            'publish_all_topics').value
-        self.serial_auto_baud_scan = bool(
-            self.get_parameter('serial_auto_baud_scan').value)
-        self.serial_no_data_reopen_sec = float(
-            self.get_parameter('serial_no_data_reopen_sec').value or 3.0)
-        self.referee_constraint_topic: str = str(
-            self.get_parameter('referee_constraint_topic').value or '/referee/constraints')
-        self.referee_self_color_topic: str = str(
-            self.get_parameter('referee_self_color_topic').value or '/referee/self_color')
-        self.heat_lock_margin = float(
-            self.get_parameter('heat_lock_margin').value or 15.0)
-        self.power_high_ratio = float(
-            self.get_parameter('power_high_ratio').value or 0.9)
-        self.power_hard_ratio = float(
-            self.get_parameter('power_hard_ratio').value or 1.0)
-        self.min_speed_scale = float(
-            self.get_parameter('min_speed_scale').value or 0.35)
+        self.publish_all_topics = self.get_parameter('publish_all_topics').value
+        self.serial_auto_baud_scan = bool(self.get_parameter('serial_auto_baud_scan').value)
+        self.serial_no_data_reopen_sec = float(self.get_parameter('serial_no_data_reopen_sec').value or 3.0)
+        self.heat_lock_margin = float(self.get_parameter('heat_lock_margin').value or 15.0)
+        self.power_high_ratio = float(self.get_parameter('power_high_ratio').value or 0.9)
+        self.power_hard_ratio = float(self.get_parameter('power_hard_ratio').value or 1.0)
+        self.min_speed_scale = float(self.get_parameter('min_speed_scale').value or 0.35)
 
         # ==================== 初始化协议解析器 ====================
-        self.parser_normal = ProtocolParser()
-        self.parser_video = ProtocolParser()
+        self.parser = ProtocolParser()
 
         # ==================== 加载话题配置 ====================
-        self.topic_config: Dict[str, bool] = self._load_topic_config()
+        self.topic_config: Dict[str, bool] = {}
+        self.glob_patterns: List[Tuple[str, bool]] = []  # [(pattern, enabled), ...]
+        self._load_topic_config()
 
         # ==================== 初始化串口 ====================
-        self.serial_normal: Optional[serial.Serial] = None
-        self.serial_video: Optional[serial.Serial] = None
-        self._init_serial_ports()
+        self.serial_port: Optional[serial.Serial] = None
+        self._init_serial_port()
 
         # ==================== 创建话题发布器 ====================
         self._publishers_dict: Dict[int, Any] = {}
         self._create_publishers()
 
-        # 串口接收状态（用于无数据重连与自动波特率扫描）
-        self.last_normal_packet_time = time.monotonic()
-        self.last_normal_byte_time = time.monotonic()
-        self.normal_rx_bytes = 0
-        self.normal_rx_packets = 0
-        self.normal_baud_candidates = []
-        preferred_baud = int(self.serial_baud_normal) if self.serial_baud_normal is not None else SerialConfig.NORMAL_BAUDRATE
-        for b in [preferred_baud, SerialConfig.NORMAL_BAUDRATE, SerialConfig.VIDEO_TRANSMISSION_BAUDRATE]:
-            if b not in self.normal_baud_candidates:
-                self.normal_baud_candidates.append(b)
-        self.normal_baud_index = 0
+        # 串口接收状态
+        self.last_packet_time = time.monotonic()
+        self.last_byte_time = time.monotonic()
+        self.rx_bytes = 0
+        self.rx_packets = 0
+        self.baud_candidates = []
+        preferred_baud = int(self.serial_baud) if self.serial_baud is not None else SerialConfig.NORMAL_BAUDRATE
+        for b in [preferred_baud, SerialConfig.NORMAL_BAUDRATE]:
+            if b not in self.baud_candidates:
+                self.baud_candidates.append(b)
+        self.baud_index = 0
 
-        # 裁判约束汇总发布器（供底盘/火控限幅与禁射）
-        # 使用 transient_local，确保晚启动订阅者也能收到最近一次状态。
+        # 裁判约束状态
         self.state_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
@@ -159,55 +159,125 @@ class RefereeSerialNode(Node):
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
         self.constraint_pub = self.create_publisher(
-            Float32MultiArray, self.referee_constraint_topic, self.state_qos)
+            Constraints, '/referee/parsed/common/constraints', self.state_qos)
         self.self_color_pub = self.create_publisher(
-            String, self.referee_self_color_topic, self.state_qos)
+            SelfColor, '/referee/parsed/common/self_color', self.state_qos)
 
+        # 约束状态变量
         self.latest_shooter_heat = 0.0
         self.latest_heat_limit = 0.0
         self.latest_chassis_power = 0.0
         self.latest_chassis_power_limit = 0.0
         self.latest_robot_id = 0
-        self.latest_self_color = 'unknown'
+        self.latest_self_color = Constants.COLOR_UNKNOWN
 
-        # 状态周期发布定时器，避免晚订阅者长期读到unknown或空约束。
-        self.state_timer = self.create_timer(
-            1.0, self._publish_state_heartbeat)
-        self.serial_watchdog_timer = self.create_timer(
-            1.0, self._serial_watchdog_tick)
-
-        # ==================== QoS配置 ====================
-        # 使用可靠传输，保留最近10条消息
-        self.qos_profile = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=10
-        )
+        # 状态周期发布定时器
+        self.state_timer = self.create_timer(1.0, self._publish_state_heartbeat)
+        self.serial_watchdog_timer = self.create_timer(1.0, self._serial_watchdog_tick)
 
         # ==================== 运行控制 ====================
         self.running = True
-        self.read_thread_normal: Optional[threading.Thread] = None
-        self.read_thread_video: Optional[threading.Thread] = None
+        self.read_thread: Optional[threading.Thread] = None
 
         # 启动读取线程
-        self._start_read_threads()
+        self._start_read_thread()
 
         self.get_logger().info('裁判系统串口读取节点已启动')
-        self.get_logger().info(
-            f'常规链路串口: {self.serial_port_normal} @ {self.serial_baud_normal}')
-        self.get_logger().info(
-            f'图传链路串口: {self.serial_port_video} @ {self.serial_baud_video}')
+        self.get_logger().info(f'串口: {self.serial_port_path} @ {self.serial_baud}')
 
-    def _load_topic_config(self) -> Dict[str, bool]:
+    def _match_glob_pattern(self, topic_name: str, pattern: str) -> bool:
         """
-        加载话题配置文件
+        检查话题名是否匹配glob模式
 
-        从YAML配置文件加载每个话题的启用/禁用状态。
+        支持的通配符：
+        - * : 匹配任意字符（不包括 /）
+        - ** : 匹配任意字符（包括 /）
+
+        Args:
+            topic_name: 话题名称（如 /referee/common/game_status）
+            pattern: glob模式（如 /referee/common/* 或 /referee/**）
 
         Returns:
-            Dict[str, bool]: 话题名称到启用状态的映射
+            bool: 是否匹配
         """
-        # 默认配置：所有话题都启用
+        # 将 glob 模式转换为 fnmatch 兼容的模式
+        # ** 匹配任意字符包括 /
+        # * 匹配任意字符不包括 /
+
+        # 先处理 ** 的情况
+        if '**' in pattern:
+            # 将 ** 替换为特殊标记，然后分割
+            # /referee/** -> 分成前缀和后缀
+            parts = pattern.split('**')
+            if len(parts) == 2:
+                prefix, suffix = parts
+                # 检查前缀匹配
+                if not topic_name.startswith(prefix):
+                    return False
+                # 检查后缀匹配（如果有）
+                if suffix:
+                    return topic_name.endswith(suffix)
+                return True
+
+        # 对于单 * 的情况，使用 fnmatch
+        # 但要注意 * 不应该匹配 /
+        # 将话题名中的 / 替换为特殊字符，模式中的 * 也做相应处理
+        # 然后使用 fnmatch
+
+        # 更简单的方法：使用分段匹配
+        if '*' in pattern and '**' not in pattern:
+            # 分割模式和话题
+            pattern_parts = pattern.split('/')
+            topic_parts = topic_name.split('/')
+
+            if len(pattern_parts) != len(topic_parts):
+                return False
+
+            for p_part, t_part in zip(pattern_parts, topic_parts):
+                if not fnmatch.fnmatch(t_part, p_part):
+                    return False
+            return True
+
+        # 没有通配符，直接比较
+        return topic_name == pattern
+
+    def _is_topic_enabled_by_config(self, topic_path: str, config_key: str) -> Optional[bool]:
+        """
+        检查话题是否被配置启用
+
+        优先级：
+        1. 具体话题配置（config_key）
+        2. 完整路径匹配
+        3. glob模式匹配（后定义的覆盖先定义的）
+        4. None（未配置）
+
+        Args:
+            topic_path: 完整话题路径（如 /referee/common/game_status）
+            config_key: 配置键（如 game_status）
+
+        Returns:
+            Optional[bool]: True=启用, False=禁用, None=未配置
+        """
+        # 1. 检查具体配置键
+        if config_key in self.topic_config:
+            return self.topic_config[config_key]
+
+        # 2. 检查完整路径匹配
+        if topic_path in self.topic_config:
+            return self.topic_config[topic_path]
+
+        # 3. 检查glob模式匹配
+        # 后定义的模式覆盖先定义的（从前往后遍历，后面的会覆盖前面的结果）
+        result = None
+        for pattern, enabled in self.glob_patterns:
+            if self._match_glob_pattern(topic_path, pattern):
+                result = enabled
+
+        return result
+
+    def _load_topic_config(self) -> None:
+        """加载话题配置文件，所有配置都在topics下，支持glob模式"""
+        # 默认配置（短名称，用于内部匹配）
         default_config = {
             'game_status': True,
             'game_result': True,
@@ -240,281 +310,219 @@ class RefereeSerialNode(Node):
             'enemy_jamming_key': True,
         }
 
-        # 如果指定了配置文件，尝试加载
+        self.topic_config = default_config.copy()
+        self.glob_patterns = []  # 清空，重新从配置文件加载
+
         if self.config_file:
             try:
                 import yaml
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     user_config = yaml.safe_load(f)
                     if user_config and 'topics' in user_config:
-                        # 合并用户配置
-                        default_config.update(user_config['topics'])
+                        topics_config = user_config['topics']
+
+                        # 分离glob模式和具体配置
+                        for key, value in topics_config.items():
+                            if '*' in key or '**' in key:
+                                # Glob模式
+                                self.glob_patterns.append((key, bool(value)))
+                            else:
+                                # 具体配置（支持短名称和完整路径）
+                                self.topic_config[key] = bool(value)
+
                         self.get_logger().info(f'已加载配置文件: {self.config_file}')
+
+                        # 打印配置摘要
+                        if self.glob_patterns:
+                            enabled_patterns = [p for p, e in self.glob_patterns if e]
+                            disabled_patterns = [p for p, e in self.glob_patterns if not e]
+                            if enabled_patterns:
+                                self.get_logger().info(f'启用模式 ({len(enabled_patterns)}): {", ".join(enabled_patterns)}')
+                            if disabled_patterns:
+                                self.get_logger().info(f'禁用模式 ({len(disabled_patterns)}): {", ".join(disabled_patterns)}')
+
             except Exception as e:
                 self.get_logger().warn(f'加载配置文件失败: {e}，使用默认配置')
 
-        return default_config
-
-    def _init_serial_ports(self) -> None:
-        """
-        初始化串口
-
-        尝试打开配置的串口设备。如果失败，记录警告但不会退出。
-        """
-        # 初始化常规链路串口
+    def _init_serial_port(self) -> None:
+        """初始化串口"""
         try:
-            self.serial_normal = serial.Serial(
-                port=self.serial_port_normal,
-                baudrate=int(
-                    self.serial_baud_normal) if self.serial_baud_normal is not None else SerialConfig.NORMAL_BAUDRATE,
+            self.serial_port = serial.Serial(
+                port=self.serial_port_path,
+                baudrate=int(self.serial_baud) if self.serial_baud is not None else SerialConfig.NORMAL_BAUDRATE,
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 timeout=SerialConfig.TIMEOUT
             )
-            self.get_logger().info(f'已打开常规链路串口: {self.serial_port_normal}')
+            self.get_logger().info(f'已打开串口: {self.serial_port_path}')
         except serial.SerialException as e:
-            self.get_logger().warn(
-                f'无法打开常规链路串口 {self.serial_port_normal}: {e}')
-
-        # 初始化图传链路串口
-        try:
-            self.serial_video = serial.Serial(
-                port=self.serial_port_video,
-                baudrate=int(
-                    self.serial_baud_video) if self.serial_baud_video is not None else SerialConfig.VIDEO_TRANSMISSION_BAUDRATE,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=SerialConfig.TIMEOUT
-            )
-            self.get_logger().info(f'已打开图传链路串口: {self.serial_port_video}')
-        except serial.SerialException as e:
-            self.get_logger().warn(f'无法打开图传链路串口 {self.serial_port_video}: {e}')
+            self.get_logger().warn(f'无法打开串口 {self.serial_port_path}: {e}')
 
     def _create_publishers(self) -> None:
-        """
-        创建ROS 2话题发布器
-
-        根据配置为每个数据类型创建对应的发布器。
-        使用标准ROS 2消息类型或自定义消息类型。
-        """
-        # 定义话题映射：命令码 -> (话题名, 是否启用配置键)
+        """创建ROS 2话题发布器，支持glob模式匹配配置"""
+        # 定义话题映射：命令码 -> (话题名, 消息类型, 配置键)
         topic_mappings = {
-            CommandID.GAME_STATUS: ('game_status', 'game_status'),
-            CommandID.GAME_RESULT: ('game_result', 'game_result'),
-            CommandID.ROBOT_HP: ('robot_hp', 'robot_hp'),
-            CommandID.FIELD_EVENT: ('field_event', 'field_event'),
-            CommandID.REFEREE_WARNING: ('referee_warning', 'referee_warning'),
-            CommandID.DART_LAUNCH_DATA: ('dart_launch_data', 'dart_launch_data'),
-            CommandID.ROBOT_PERFORMANCE: ('robot_performance', 'robot_performance'),
-            CommandID.ROBOT_HEAT: ('robot_heat', 'robot_heat'),
-            CommandID.ROBOT_POSITION: ('robot_position', 'robot_position'),
-            CommandID.ROBOT_BUFF: ('robot_buff', 'robot_buff'),
-            CommandID.DAMAGE_STATE: ('damage_state', 'damage_state'),
-            CommandID.SHOOT_DATA: ('shoot_data', 'shoot_data'),
-            CommandID.ALLOWED_SHOOT: ('allowed_shoot', 'allowed_shoot'),
-            CommandID.RFID_STATUS: ('rfid_status', 'rfid_status'),
-            CommandID.DART_OPERATOR_CMD: ('dart_operator_cmd', 'dart_operator_cmd'),
-            CommandID.GROUND_ROBOT_POSITION: ('ground_robot_position', 'ground_robot_position'),
-            CommandID.RADAR_MARK_PROGRESS: ('radar_mark_progress', 'radar_mark_progress'),
-            CommandID.SENTRY_DECISION_SYNC: ('sentry_decision_sync', 'sentry_decision_sync'),
-            CommandID.RADAR_DECISION_SYNC: ('radar_decision_sync', 'radar_decision_sync'),
-            CommandID.MAP_CLICK_DATA: ('map_click_data', 'map_click_data'),
-            CommandID.MAP_RADAR_DATA: ('map_radar_data', 'map_radar_data'),
-            CommandID.MAP_PATH_DATA: ('map_path_data', 'map_path_data'),
-            CommandID.MAP_ROBOT_DATA: ('map_robot_data', 'map_robot_data'),
-            CommandID.ENEMY_POSITION: ('enemy_position', 'enemy_position'),
-            CommandID.ENEMY_HP: ('enemy_hp', 'enemy_hp'),
-            CommandID.ENEMY_AMMO: ('enemy_ammo', 'enemy_ammo'),
-            CommandID.ENEMY_TEAM_STATUS: ('enemy_team_status', 'enemy_team_status'),
-            CommandID.ENEMY_BUFF: ('enemy_buff', 'enemy_buff'),
-            CommandID.ENEMY_JAMMING_KEY: ('enemy_jamming_key', 'enemy_jamming_key'),
+            CommandID.GAME_STATUS: ('game_status', GameStatus, 'game_status'),
+            CommandID.GAME_RESULT: ('game_result', GameResult, 'game_result'),
+            CommandID.ROBOT_HP: ('robot_hp', RobotHP, 'robot_hp'),
+            CommandID.FIELD_EVENT: ('field_event', FieldEvent, 'field_event'),
+            CommandID.REFEREE_WARNING: ('referee_warning', RefereeWarning, 'referee_warning'),
+            CommandID.DART_LAUNCH_DATA: ('dart_launch_data', DartLaunchData, 'dart_launch_data'),
+            CommandID.ROBOT_PERFORMANCE: ('robot_performance', RobotPerformance, 'robot_performance'),
+            CommandID.ROBOT_HEAT: ('robot_heat', RobotHeat, 'robot_heat'),
+            CommandID.ROBOT_POSITION: ('robot_position', RobotPosition, 'robot_position'),
+            CommandID.ROBOT_BUFF: ('robot_buff', RobotBuff, 'robot_buff'),
+            CommandID.DAMAGE_STATE: ('damage_state', DamageState, 'damage_state'),
+            CommandID.SHOOT_DATA: ('shoot_data', ShootData, 'shoot_data'),
+            CommandID.ALLOWED_SHOOT: ('allowed_shoot', AllowedShoot, 'allowed_shoot'),
+            CommandID.RFID_STATUS: ('rfid_status', RFIDStatus, 'rfid_status'),
+            CommandID.DART_OPERATOR_CMD: ('dart_operator_cmd', DartOperatorCmd, 'dart_operator_cmd'),
+            CommandID.GROUND_ROBOT_POSITION: ('ground_robot_position', GroundRobotPosition, 'ground_robot_position'),
+            CommandID.RADAR_MARK_PROGRESS: ('radar_mark_progress', RadarMarkProgress, 'radar_mark_progress'),
+            CommandID.SENTRY_DECISION_SYNC: ('sentry_decision_sync', SentryDecisionSync, 'sentry_decision_sync'),
+            CommandID.RADAR_DECISION_SYNC: ('radar_decision_sync', RadarDecisionSync, 'radar_decision_sync'),
+            CommandID.MAP_CLICK_DATA: ('map_click_data', MapClickData, 'map_click_data'),
+            CommandID.MAP_RADAR_DATA: ('map_radar_data', MapRadarData, 'map_radar_data'),
+            CommandID.MAP_PATH_DATA: ('map_path_data', MapPathData, 'map_path_data'),
+            CommandID.MAP_ROBOT_DATA: ('map_robot_data', MapRobotData, 'map_robot_data'),
+            CommandID.ENEMY_POSITION: ('enemy_position', EnemyPosition, 'enemy_position'),
+            CommandID.ENEMY_HP: ('enemy_hp', EnemyHP, 'enemy_hp'),
+            CommandID.ENEMY_AMMO: ('enemy_ammo', EnemyAmmo, 'enemy_ammo'),
+            CommandID.ENEMY_TEAM_STATUS: ('enemy_team_status', EnemyTeamStatus, 'enemy_team_status'),
+            CommandID.ENEMY_BUFF: ('enemy_buff', EnemyBuff, 'enemy_buff'),
+            CommandID.ENEMY_JAMMING_KEY: ('enemy_jamming_key', EnemyJammingKey, 'enemy_jamming_key'),
         }
 
-        # 为每个话题创建发布器
         enabled_topics = []
         disabled_topics = []
+        glob_matched_topics = []
 
-        for cmd_id, (topic_name, config_key) in topic_mappings.items():
-            # 检查配置是否启用
-            # 优先使用配置文件设置，如果配置文件中明确设为 False 则禁用
-            # publish_all_topics 只在配置文件没有明确设置时生效
-            config_value = self.topic_config.get(config_key)
+        for cmd_id, (topic_name, msg_type, config_key) in topic_mappings.items():
+            # 构建完整话题路径
+            topic_path = f'/referee/common/{topic_name}'
+
+            # 使用新的配置检查方法（支持glob模式）
+            config_value = self._is_topic_enabled_by_config(topic_path, config_key)
+
             if config_value is False:
-                # 配置文件明确禁用
-                disabled_topics.append(topic_name)
+                # 检查是否被glob模式禁用
+                if config_key in self.topic_config and self.topic_config[config_key] is False:
+                    disabled_topics.append(topic_name)
+                else:
+                    # 被glob模式禁用
+                    glob_matched_topics.append(f'{topic_name} (glob)')
                 continue
             elif config_value is True:
-                # 配置文件明确启用
-                pass
+                # 检查是否被glob模式启用
+                if config_key not in self.topic_config:
+                    glob_matched_topics.append(f'{topic_name} (glob)')
             elif self.publish_all_topics:
-                # 配置文件未设置，但 publish_all_topics 为 True
                 pass
             else:
-                # 配置文件未设置，且 publish_all_topics 为 False，默认禁用
                 disabled_topics.append(topic_name)
                 continue
 
             self._publishers_dict[cmd_id] = self.create_publisher(
-                String,
-                f'/referee/{topic_name}',
+                msg_type,
+                topic_path,
                 10
             )
             enabled_topics.append(topic_name)
 
-        # 打印话题启用状态
+        # 打印话题状态
         if enabled_topics:
             self.get_logger().info(f'已启用话题 ({len(enabled_topics)}): {", ".join(enabled_topics)}')
         if disabled_topics:
             self.get_logger().info(f'已禁用话题 ({len(disabled_topics)}): {", ".join(disabled_topics)}')
+        if glob_matched_topics:
+            self.get_logger().info(f'由glob模式匹配 ({len(glob_matched_topics)}): {", ".join(glob_matched_topics)}')
 
-    def _start_read_threads(self) -> None:
-        """
-        启动串口读取线程
-
-        为常规链路和图传链路分别创建读取线程。
-        """
-        # 常规链路读取线程
-        if self.serial_normal:
-            self.read_thread_normal = threading.Thread(
-                target=self._read_serial_normal,
+    def _start_read_thread(self) -> None:
+        """启动串口读取线程"""
+        if self.serial_port:
+            self.read_thread = threading.Thread(
+                target=self._read_serial,
                 daemon=True
             )
-            self.read_thread_normal.start()
+            self.read_thread.start()
 
-        # 图传链路读取线程
-        if self.serial_video:
-            self.read_thread_video = threading.Thread(
-                target=self._read_serial_video,
-                daemon=True
-            )
-            self.read_thread_video.start()
-
-    def _read_serial_normal(self) -> None:
-        """
-        常规链路串口读取线程
-
-        持续从常规链路串口读取数据并解析。
-        """
+    def _read_serial(self) -> None:
+        """串口读取线程"""
         while self.running:
             try:
-                if not self.serial_normal or not self.serial_normal.is_open:
+                if not self.serial_port or not self.serial_port.is_open:
                     time.sleep(0.05)
                     continue
 
-                if self.serial_normal.in_waiting > 0:
-                    data = self.serial_normal.read(
-                        self.serial_normal.in_waiting)
+                if self.serial_port.in_waiting > 0:
+                    data = self.serial_port.read(self.serial_port.in_waiting)
                     if data:
-                        self.last_normal_byte_time = time.monotonic()
-                        self.normal_rx_bytes += len(data)
-                    self.parser_normal.feed_data(data)
+                        self.last_byte_time = time.monotonic()
+                        self.rx_bytes += len(data)
+                    self.parser.feed_data(data)
 
-                    # 尝试解包数据
                     while True:
-                        result = self.parser_normal.unpack()
+                        result = self.parser.unpack()
                         if result is None:
                             break
                         cmd_id, parsed_data = result
-                        self.last_normal_packet_time = time.monotonic()
-                        self.normal_rx_packets += 1
+                        self.last_packet_time = time.monotonic()
+                        self.rx_packets += 1
                         self._publish_data(cmd_id, parsed_data)
 
-                time.sleep(0.001)  # 1ms间隔，避免CPU占用过高
+                time.sleep(0.001)
 
             except serial.SerialException as e:
-                self.get_logger().error(f'常规链路串口读取错误: {e}')
+                self.get_logger().error(f'串口读取错误: {e}')
                 time.sleep(0.1)
             except Exception as e:
-                self.get_logger().error(f'常规链路解析错误: {e}')
+                self.get_logger().error(f'解析错误: {e}')
 
-    def _reopen_normal_serial(self, baud: int) -> None:
-        """重开常规链路串口并切换波特率。"""
+    def _reopen_serial(self, baud: int) -> None:
+        """重开串口并切换波特率"""
         try:
-            if self.serial_normal and self.serial_normal.is_open:
-                self.serial_normal.close()
+            if self.serial_port and self.serial_port.is_open:
+                self.serial_port.close()
         except Exception:
             pass
 
         try:
-            self.serial_normal = serial.Serial(
-                port=self.serial_port_normal,
+            self.serial_port = serial.Serial(
+                port=self.serial_port_path,
                 baudrate=baud,
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 timeout=SerialConfig.TIMEOUT
             )
-            self.serial_baud_normal = baud
-            self.last_normal_byte_time = time.monotonic()
-            self.last_normal_packet_time = time.monotonic()
-            self.get_logger().warn(
-                f'常规链路无有效数据，切换波特率重连: {self.serial_port_normal} @ {baud}')
+            self.serial_baud = baud
+            self.last_byte_time = time.monotonic()
+            self.last_packet_time = time.monotonic()
+            self.get_logger().warn(f'串口无有效数据，切换波特率重连: {self.serial_port_path} @ {baud}')
         except serial.SerialException as e:
-            self.get_logger().warn(
-                f'常规链路重连失败 {self.serial_port_normal} @ {baud}: {e}')
-            self.serial_normal = None
+            self.get_logger().warn(f'串口重连失败 {self.serial_port_path} @ {baud}: {e}')
+            self.serial_port = None
 
     def _serial_watchdog_tick(self) -> None:
-        """串口看门狗：长时间无有效帧时自动重连并轮询波特率。"""
+        """串口看门狗：长时间无有效帧时自动重连"""
         if not self.running or not self.serial_auto_baud_scan:
             return
 
         now = time.monotonic()
-        if now - self.last_normal_packet_time < self.serial_no_data_reopen_sec:
+        if now - self.last_packet_time < self.serial_no_data_reopen_sec:
             return
 
-        # 如果最近连字节都没有，依然尝试重开（设备可能瞬断后恢复）
-        self.normal_baud_index = (
-            self.normal_baud_index + 1) % len(self.normal_baud_candidates)
-        next_baud = self.normal_baud_candidates[self.normal_baud_index]
-        self._reopen_normal_serial(next_baud)
-
-    def _read_serial_video(self) -> None:
-        """
-        图传链路串口读取线程
-
-        持续从图传链路串口读取数据并解析。
-        """
-        while self.running and self.serial_video:
-            try:
-                if self.serial_video.in_waiting > 0:
-                    data = self.serial_video.read(self.serial_video.in_waiting)
-                    self.parser_video.feed_data(data)
-
-                    # 尝试解包数据
-                    while True:
-                        result = self.parser_video.unpack()
-                        if result is None:
-                            break
-                        cmd_id, parsed_data = result
-                        self._publish_data(cmd_id, parsed_data)
-
-                time.sleep(0.001)  # 1ms间隔，避免CPU占用过高
-
-            except serial.SerialException as e:
-                self.get_logger().error(f'图传链路串口读取错误: {e}')
-                break
-            except Exception as e:
-                self.get_logger().error(f'图传链路解析错误: {e}')
+        self.baud_index = (self.baud_index + 1) % len(self.baud_candidates)
+        next_baud = self.baud_candidates[self.baud_index]
+        self._reopen_serial(next_baud)
 
     def _publish_data(self, cmd_id: int, data: Any) -> None:
-        """
-        发布解析后的数据
-
-        将解析后的数据发布到对应的ROS 2话题。
-
-        Args:
-            cmd_id: 命令码ID
-            data: 解析后的数据对象
-        """
+        """发布解析后的数据"""
         try:
-            # 更新并发布裁判约束
             self._update_constraint_state(cmd_id, data)
 
             if cmd_id in self._publishers_dict:
-                # 根据数据类型创建对应的ROS消息
                 msg = self._create_ros_message(cmd_id, data)
                 if msg:
                     self._publishers_dict[cmd_id].publish(msg)
@@ -522,31 +530,30 @@ class RefereeSerialNode(Node):
             self.get_logger().error(f'发布数据错误 (cmd_id=0x{cmd_id:04X}): {e}')
 
     def _update_constraint_state(self, cmd_id: int, data: Any) -> None:
-        """根据裁判帧更新约束状态，并发布统一约束话题。"""
+        """根据裁判帧更新约束状态"""
         updated = False
 
         if cmd_id == CommandID.ROBOT_PERFORMANCE:
             self.latest_robot_id = int(getattr(data, 'robot_id', 0))
-            self.latest_heat_limit = float(
-                getattr(data, 'shooter_barrel_heat_limit', 0.0))
-            self.latest_chassis_power_limit = float(
-                getattr(data, 'chassis_power_limit', 0.0))
+            self.latest_heat_limit = float(getattr(data, 'shooter_barrel_heat_limit', 0.0))
+            self.latest_chassis_power_limit = float(getattr(data, 'chassis_power_limit', 0.0))
             self._publish_self_color_from_robot_id(self.latest_robot_id)
             updated = True
         elif cmd_id == CommandID.ROBOT_HEAT:
-            self.latest_shooter_heat = float(
-                getattr(data, 'shooter_17mm_barrel_heat', 0.0))
-            self.latest_chassis_power = float(
-                getattr(data, 'chassis_current_power', 0.0))
+            self.latest_shooter_heat = float(getattr(data, 'shooter_17mm_barrel_heat', 0.0))
+            self.latest_chassis_power = float(getattr(data, 'chassis_current_power', 0.0))
             updated = True
 
         if not updated:
             return
 
+        self._publish_constraints()
+
+    def _publish_constraints(self) -> None:
+        """发布约束消息"""
         fire_allowed = True
         if self.latest_heat_limit > 0.0:
-            fire_allowed = self.latest_shooter_heat < max(
-                0.0, self.latest_heat_limit - self.heat_lock_margin)
+            fire_allowed = self.latest_shooter_heat < max(0.0, self.latest_heat_limit - self.heat_lock_margin)
         if self.latest_chassis_power_limit > 0.0 and self.latest_chassis_power > self.latest_chassis_power_limit:
             fire_allowed = False
 
@@ -556,131 +563,192 @@ class RefereeSerialNode(Node):
             if ratio >= self.power_hard_ratio:
                 speed_scale = self.min_speed_scale
             elif ratio > self.power_high_ratio:
-                denom = max(1e-6, self.power_hard_ratio -
-                            self.power_high_ratio)
+                denom = max(1e-6, self.power_hard_ratio - self.power_high_ratio)
                 k = (ratio - self.power_high_ratio) / denom
                 speed_scale = 1.0 - k * (1.0 - self.min_speed_scale)
 
-        self._publish_constraints(fire_allowed, speed_scale)
-
-    def _publish_constraints(self, fire_allowed: bool, speed_scale: float) -> None:
-        constraints = Float32MultiArray()
-        constraints.data = [
-            float(self.latest_shooter_heat),
-            float(self.latest_heat_limit),
-            float(self.latest_chassis_power),
-            float(self.latest_chassis_power_limit),
-            1.0 if fire_allowed else 0.0,
-            float(max(0.0, min(1.0, speed_scale))),
-        ]
-        self.constraint_pub.publish(constraints)
+        msg = Constraints()
+        msg.shooter_heat = float(self.latest_shooter_heat)
+        msg.heat_limit = float(self.latest_heat_limit)
+        msg.chassis_power = float(self.latest_chassis_power)
+        msg.chassis_power_limit = float(self.latest_chassis_power_limit)
+        msg.fire_allowed = fire_allowed
+        msg.speed_scale = float(max(0.0, min(1.0, speed_scale)))
+        self.constraint_pub.publish(msg)
 
     def _publish_self_color_from_robot_id(self, robot_id: int) -> None:
-        """根据机器人ID发布自车颜色。"""
+        """根据机器人ID发布自车颜色"""
+        msg = SelfColor()
         if 1 <= robot_id < 100:
-            color = 'red'
+            msg.color = Constants.COLOR_RED
         elif 100 <= robot_id < 200:
-            color = 'blue'
+            msg.color = Constants.COLOR_BLUE
         else:
-            color = 'unknown'
+            msg.color = Constants.COLOR_UNKNOWN
 
-        self.latest_self_color = color
-        msg = String()
-        msg.data = color
+        self.latest_self_color = msg.color
         self.self_color_pub.publish(msg)
 
     def _publish_state_heartbeat(self) -> None:
-        """周期性发布当前颜色与约束状态，保障晚订阅者可见。"""
-        msg = String()
-        msg.data = self.latest_self_color
+        """周期性发布当前颜色与约束状态"""
+        msg = SelfColor()
+        msg.color = self.latest_self_color
         self.self_color_pub.publish(msg)
+        self._publish_constraints()
 
-        fire_allowed = True
-        if self.latest_heat_limit > 0.0:
-            fire_allowed = self.latest_shooter_heat < max(
-                0.0, self.latest_heat_limit - self.heat_lock_margin)
-        if self.latest_chassis_power_limit > 0.0 and self.latest_chassis_power > self.latest_chassis_power_limit:
-            fire_allowed = False
+    def _create_ros_message(self, cmd_id: int, data: Any) -> Optional[Any]:
+        """创建自定义ROS消息"""
+        try:
+            if cmd_id == CommandID.GAME_STATUS:
+                msg = GameStatus()
+                msg.game_type = int(getattr(data, 'game_type', 0))
+                msg.game_progress = int(getattr(data, 'game_progress', 0))
+                msg.stage_remain_time = int(getattr(data, 'stage_remain_time', 0))
+                msg.sync_timestamp = int(getattr(data, 'sync_timestamp', 0))
+                return msg
 
-        speed_scale = 1.0
-        if self.latest_chassis_power_limit > 0.0:
-            ratio = self.latest_chassis_power / self.latest_chassis_power_limit
-            if ratio >= self.power_hard_ratio:
-                speed_scale = self.min_speed_scale
-            elif ratio > self.power_high_ratio:
-                denom = max(1e-6, self.power_hard_ratio -
-                            self.power_high_ratio)
-                k = (ratio - self.power_high_ratio) / denom
-                speed_scale = 1.0 - k * (1.0 - self.min_speed_scale)
+            elif cmd_id == CommandID.GAME_RESULT:
+                msg = GameResult()
+                msg.winner = int(getattr(data, 'winner', 0))
+                return msg
 
-        self._publish_constraints(fire_allowed, speed_scale)
+            elif cmd_id == CommandID.ROBOT_HP:
+                msg = RobotHP()
+                msg.red_1_robot_hp = int(getattr(data, 'red_1_robot_hp', 0))
+                msg.red_2_robot_hp = int(getattr(data, 'red_2_robot_hp', 0))
+                msg.red_3_robot_hp = int(getattr(data, 'red_3_robot_hp', 0))
+                msg.red_4_robot_hp = int(getattr(data, 'red_4_robot_hp', 0))
+                msg.red_7_robot_hp = int(getattr(data, 'red_7_robot_hp', 0))
+                msg.red_outpost_hp = int(getattr(data, 'red_outpost_hp', 0))
+                msg.red_base_hp = int(getattr(data, 'red_base_hp', 0))
+                msg.blue_1_robot_hp = int(getattr(data, 'blue_1_robot_hp', 0))
+                msg.blue_2_robot_hp = int(getattr(data, 'blue_2_robot_hp', 0))
+                msg.blue_3_robot_hp = int(getattr(data, 'blue_3_robot_hp', 0))
+                msg.blue_4_robot_hp = int(getattr(data, 'blue_4_robot_hp', 0))
+                msg.blue_7_robot_hp = int(getattr(data, 'blue_7_robot_hp', 0))
+                msg.blue_outpost_hp = int(getattr(data, 'blue_outpost_hp', 0))
+                msg.blue_base_hp = int(getattr(data, 'blue_base_hp', 0))
+                return msg
 
-    def _create_ros_message(self, cmd_id: int, data: Any) -> Optional[String]:
-        """
-        创建ROS消息
+            elif cmd_id == CommandID.ROBOT_PERFORMANCE:
+                msg = RobotPerformance()
+                msg.robot_id = int(getattr(data, 'robot_id', 0))
+                msg.robot_level = int(getattr(data, 'robot_level', 0))
+                msg.current_hp = int(getattr(data, 'current_hp', 0))
+                msg.maximum_hp = int(getattr(data, 'maximum_hp', 0))
+                msg.shooter_barrel_cooling_value = int(getattr(data, 'shooter_barrel_cooling_value', 0))
+                msg.shooter_barrel_heat_limit = int(getattr(data, 'shooter_barrel_heat_limit', 0))
+                msg.chassis_power_limit = int(getattr(data, 'chassis_power_limit', 0))
+                msg.power_management_gimbal_output = bool(getattr(data, 'power_management_gimbal_output', False))
+                msg.power_management_chassis_output = bool(getattr(data, 'power_management_chassis_output', False))
+                msg.power_management_shooter_output = bool(getattr(data, 'power_management_shooter_output', False))
+                return msg
 
-        将解析后的数据转换为JSON字符串消息，保留完整字段，
-        避免将非位姿数据错误包装为PoseStamped。
+            elif cmd_id == CommandID.ROBOT_HEAT:
+                msg = RobotHeat()
+                msg.chassis_current_voltage = int(getattr(data, 'chassis_current_voltage', 0))
+                msg.chassis_current_current = int(getattr(data, 'chassis_current_current', 0))
+                msg.chassis_current_power = float(getattr(data, 'chassis_current_power', 0.0))
+                msg.buffer_energy = int(getattr(data, 'buffer_energy', 0))
+                msg.shooter_17mm_barrel_heat = int(getattr(data, 'shooter_17mm_barrel_heat', 0))
+                msg.shooter_42mm_barrel_heat = int(getattr(data, 'shooter_42mm_barrel_heat', 0))
+                return msg
 
-        Args:
-            cmd_id: 命令码ID
-            data: 解析后的数据对象
+            elif cmd_id == CommandID.ROBOT_POSITION:
+                msg = RobotPosition()
+                msg.x = float(getattr(data, 'x', 0.0))
+                msg.y = float(getattr(data, 'y', 0.0))
+                msg.angle = float(getattr(data, 'angle', 0.0))
+                return msg
 
-        Returns:
-            Optional[String]: ROS消息对象
-        """
-        payload: Dict[str, Any]
-        if is_dataclass(data) and not isinstance(data, type):
-            payload = asdict(data)
-        elif hasattr(data, '__dict__'):
-            payload = dict(data.__dict__)
-        else:
-            payload = {'value': data}
+            elif cmd_id == CommandID.ROBOT_BUFF:
+                msg = RobotBuff()
+                msg.recovery_buff = int(getattr(data, 'recovery_buff', 0))
+                msg.cooling_buff = int(getattr(data, 'cooling_buff', 0))
+                msg.defence_buff = int(getattr(data, 'defence_buff', 0))
+                msg.vulnerability_buff = int(getattr(data, 'vulnerability_buff', 0))
+                msg.attack_buff = int(getattr(data, 'attack_buff', 0))
+                msg.remaining_energy = int(getattr(data, 'remaining_energy', 0))
+                return msg
 
-        msg = String()
-        msg.data = json.dumps(
-            {
-                'cmd_id': f'0x{cmd_id:04X}',
-                'data': payload,
-            },
-            ensure_ascii=False,
-            separators=(',', ':'),
-            default=str,
-        )
-        return msg
+            elif cmd_id == CommandID.DAMAGE_STATE:
+                msg = DamageState()
+                msg.armor_id = int(getattr(data, 'armor_id', 0))
+                msg.damage_type = int(getattr(data, 'damage_type', 0))
+                return msg
+
+            elif cmd_id == CommandID.SHOOT_DATA:
+                msg = ShootData()
+                msg.bullet_type = int(getattr(data, 'bullet_type', 0))
+                msg.shooter_id = int(getattr(data, 'shooter_id', 0))
+                msg.launching_frequency = int(getattr(data, 'launching_frequency', 0))
+                msg.initial_speed = float(getattr(data, 'initial_speed', 0.0))
+                return msg
+
+            elif cmd_id == CommandID.ALLOWED_SHOOT:
+                msg = AllowedShoot()
+                msg.projectile_allowance_17mm = int(getattr(data, 'projectile_allowance_17mm', 0))
+                msg.projectile_allowance_42mm = int(getattr(data, 'projectile_allowance_42mm', 0))
+                msg.remaining_gold_coin = int(getattr(data, 'remaining_gold_coin', 0))
+                msg.fortress_reserve_17mm = int(getattr(data, 'fortress_reserve_17mm', 0))
+                return msg
+
+            elif cmd_id == CommandID.ENEMY_POSITION:
+                msg = EnemyPosition()
+                msg.hero_x = int(getattr(data, 'hero_x', 0))
+                msg.hero_y = int(getattr(data, 'hero_y', 0))
+                msg.engineer_x = int(getattr(data, 'engineer_x', 0))
+                msg.engineer_y = int(getattr(data, 'engineer_y', 0))
+                msg.infantry_3_x = int(getattr(data, 'infantry_3_x', 0))
+                msg.infantry_3_y = int(getattr(data, 'infantry_3_y', 0))
+                msg.infantry_4_x = int(getattr(data, 'infantry_4_x', 0))
+                msg.infantry_4_y = int(getattr(data, 'infantry_4_y', 0))
+                msg.aerial_x = int(getattr(data, 'aerial_x', 0))
+                msg.aerial_y = int(getattr(data, 'aerial_y', 0))
+                msg.sentry_x = int(getattr(data, 'sentry_x', 0))
+                msg.sentry_y = int(getattr(data, 'sentry_y', 0))
+                return msg
+
+            elif cmd_id == CommandID.ENEMY_HP:
+                msg = EnemyHP()
+                msg.hero_hp = int(getattr(data, 'hero_hp', 0))
+                msg.engineer_hp = int(getattr(data, 'engineer_hp', 0))
+                msg.infantry_3_hp = int(getattr(data, 'infantry_3_hp', 0))
+                msg.infantry_4_hp = int(getattr(data, 'infantry_4_hp', 0))
+                msg.sentry_hp = int(getattr(data, 'sentry_hp', 0))
+                return msg
+
+            elif cmd_id == CommandID.ENEMY_AMMO:
+                msg = EnemyAmmo()
+                msg.hero_ammo = int(getattr(data, 'hero_ammo', 0))
+                msg.infantry_3_ammo = int(getattr(data, 'infantry_3_ammo', 0))
+                msg.infantry_4_ammo = int(getattr(data, 'infantry_4_ammo', 0))
+                msg.aerial_ammo = int(getattr(data, 'aerial_ammo', 0))
+                msg.sentry_ammo = int(getattr(data, 'sentry_ammo', 0))
+                return msg
+
+            else:
+                return None
+
+        except Exception as e:
+            self.get_logger().error(f'创建消息错误: {e}')
+            return None
 
     def destroy_node(self) -> None:
-        """
-        销毁节点
-
-        关闭串口并停止读取线程。
-        """
+        """销毁节点"""
         self.running = False
 
-        # 等待线程结束
-        if self.read_thread_normal and self.read_thread_normal.is_alive():
-            self.read_thread_normal.join(timeout=1.0)
-        if self.read_thread_video and self.read_thread_video.is_alive():
-            self.read_thread_video.join(timeout=1.0)
+        if self.read_thread and self.read_thread.is_alive():
+            self.read_thread.join(timeout=1.0)
 
-        # 关闭串口
-        if self.serial_normal and self.serial_normal.is_open:
-            self.serial_normal.close()
-        if self.serial_video and self.serial_video.is_open:
-            self.serial_video.close()
+        if self.serial_port and self.serial_port.is_open:
+            self.serial_port.close()
 
         super().destroy_node()
 
 
 def main(args: Optional[list] = None) -> None:
-    """
-    节点主入口函数
-
-    初始化ROS 2，创建节点实例，并进入spin循环。
-
-    Args:
-        args: 命令行参数
-    """
+    """节点主入口函数"""
     rclpy.init(args=args)
 
     try:
