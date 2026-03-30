@@ -44,14 +44,14 @@ def generate_launch_description() -> LaunchDescription:
     # 配置文件路径
     declare_config_file = DeclareLaunchArgument(
         'config_file',
-        default_value='',
+        default_value='src/dji_referee_protocol/config/topic_config.yaml',
         description='话题配置文件路径（空则使用默认配置）'
     )
 
     # 是否发布所有话题
     declare_publish_all = DeclareLaunchArgument(
         'publish_all_topics',
-        default_value='true',
+        default_value='false',
         description='是否发布所有话题（忽略配置文件）'
     )
 

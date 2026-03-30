@@ -50,7 +50,7 @@ topics:
   # '/referee/common/robot_buff': true
 
   # 3. 启用所有敌方数据
-  '/referee/common/enemy_*': true
+  # '/referee/common/enemy_*': false
 
   # 4. 启用解析后的数据
   '/referee/parsed/**': true
