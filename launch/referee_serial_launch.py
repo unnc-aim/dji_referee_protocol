@@ -7,9 +7,10 @@
     ros2 launch dji_referee_protocol referee_serial_launch.py
 
 参数：
-    - serial_port_normal: 常规链路串口设备路径
-    - serial_port_video: 图传链路串口设备路径
+    - serial_port: 常规链路串口设备路径
     - config_file: 配置文件路径
+    - publish_all_topics: 是否发布全部话题
+    - ui_enable_tx: 是否启用 UI 下发
 """
 
 from launch import LaunchDescription
@@ -28,17 +29,10 @@ def generate_launch_description() -> LaunchDescription:
     # ==================== 声明启动参数 ====================
 
     # 常规链路串口设备路径
-    declare_serial_port_normal = DeclareLaunchArgument(
-        'serial_port_normal',
+    declare_serial_port = DeclareLaunchArgument(
+        'serial_port',
         default_value='/dev/ttyUSB0',
         description='常规链路串口设备路径'
-    )
-
-    # 图传链路串口设备路径
-    declare_serial_port_video = DeclareLaunchArgument(
-        'serial_port_video',
-        default_value='/dev/ttyUSB1',
-        description='图传链路串口设备路径'
     )
 
     # 配置文件路径
@@ -54,6 +48,11 @@ def generate_launch_description() -> LaunchDescription:
         default_value='false',
         description='是否发布所有话题（忽略配置文件）'
     )
+    declare_ui_enable_tx = DeclareLaunchArgument(
+        'ui_enable_tx',
+        default_value='true',
+        description='是否启用 UI 绘制节点发送'
+    )
 
     # ==================== 创建节点 ====================
 
@@ -63,10 +62,21 @@ def generate_launch_description() -> LaunchDescription:
         name='referee_serial_node',
         output='screen',
         parameters=[{
-            'serial_port_normal': LaunchConfiguration('serial_port_normal'),
-            'serial_port_video': LaunchConfiguration('serial_port_video'),
+            'serial_port': LaunchConfiguration('serial_port'),
             'config_file': LaunchConfiguration('config_file'),
             'publish_all_topics': LaunchConfiguration('publish_all_topics'),
+        }],
+        remappings=[
+            # 可在此添加话题重映射
+        ]
+    )
+    referee_ui_node = Node(
+        package='dji_referee_protocol',
+        executable='referee_ui_node',
+        name='referee_ui_node',
+        output='screen',
+        parameters=[{
+            'ui_enable_tx': LaunchConfiguration('ui_enable_tx'),
         }],
         remappings=[
             # 可在此添加话题重映射
@@ -77,10 +87,11 @@ def generate_launch_description() -> LaunchDescription:
 
     return LaunchDescription([
         # 声明参数
-        declare_serial_port_normal,
-        declare_serial_port_video,
+        declare_serial_port,
         declare_config_file,
         declare_publish_all,
+        declare_ui_enable_tx,
         # 启动节点
         referee_node,
+        referee_ui_node,
     ])

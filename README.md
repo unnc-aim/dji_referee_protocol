@@ -13,7 +13,7 @@
 - ✅ 支持串口读取（常规链路）
 - ✅ 严格按照官方协议文档解析数据
 - ✅ 将每类数据发布为独立的 ROS 2 话题
-- ✅ 支持通过串口发送 0x0301 UI 绘制数据（表 1-25~1-31）
+- ✅ 支持独立 UI 节点生成并下发 0x0301 UI 绘制数据（表 1-25~1-31）
 - ✅ 支持 YAML 配置文件控制话题发布（支持 Glob 模式匹配）
 - ✅ 使用自定义 ROS 2 消息类型
 - ✅ 提供解析后的约束状态和颜色信息
@@ -39,7 +39,8 @@ dji-communication-protocol/
 │   ├── protocol_constants.py      # 协议常量定义
 │   ├── data_types.py              # 数据类型定义（所有消息结构）
 │   ├── protocol_parser.py         # 协议解析器
-│   └── referee_serial_node.py     # ROS 2 主节点
+│   ├── referee_serial_node.py     # 串口收发与协议解析节点
+│   └── referee_ui_node.py         # UI 绘制数据生成节点
 ├── config/
 │   └── topic_config.yaml          # 话题配置文件（支持 Glob 模式）
 ├── launch/
@@ -109,6 +110,9 @@ ros2 launch dji_referee_protocol referee_serial_launch.py
 ros2 run dji_referee_protocol referee_serial_node \
     --ros-args \
     -p serial_port:=/dev/ttyUSB0
+
+# 方式三补充：单独运行 UI 节点
+ros2 run dji_referee_protocol referee_ui_node
 
 # 方式四：使用配置文件
 ros2 run dji_referee_protocol referee_serial_node \
@@ -385,7 +389,7 @@ topics:
 
 | 参数名 | 类型 | 默认值 | 描述 |
 |--------|------|--------|------|
-| `ui_enable_tx` | bool | false | 是否启用 UI 串口发送 |
+| `ui_enable_tx` | bool | true | 是否启用 UI 绘制节点发送 |
 | `ui_update_period_sec` | float | 0.5 | UI 更新周期（秒） |
 | `ui_target_client_id` | int | 0 | 指定接收选手端 ID（0=按 robot_id 自动映射） |
 | `ui_layer` | int | 8 | 绘制图层 |
@@ -395,6 +399,7 @@ topics:
 | `ui_line_gap` | int | 35 | 两行文本间距 |
 | `ui_font_size` | int | 20 | 字体大小 |
 | `ui_line_width` | int | 2 | 线宽 |
+| `ui_tx_topic` | string | `/referee/ui/tx_frame` | UI 原始帧发布话题（UI 节点 -> 串口节点） |
 
 ---
 

@@ -33,6 +33,7 @@ install(DIRECTORY
 # 安装Python可执行脚本
 install(PROGRAMS
   scripts/referee_serial_node
+  scripts/referee_ui_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
