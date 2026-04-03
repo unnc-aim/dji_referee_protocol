@@ -78,6 +78,8 @@ from dji_referee_protocol.msg import (
     EnemyJammingKey,
     Constraints,
     SelfColor,
+    ReadSuperCap,
+    UnifiedInput
 )
 
 # 尝试导入串口库
@@ -155,6 +157,23 @@ class RefereeSerialNode(Node):
         # ==================== 初始化协议解析器 ====================
         self.parser = ProtocolParser()
 
+
+        # ==================== 初始化话题订阅 ==================
+
+        self.cap_sub = self.create_subscription(
+            ReadSuperCap,
+            '/ecat/supercap/read',
+            self._supercap_ui_callback,
+            10
+        )
+
+        self.uni_input_sub = self.create_subscription(
+            UnifiedInput,
+            '/hub/rc_unified_input',
+            self._input_ui_callback,
+            10
+        )
+
         # ==================== 加载话题配置 ====================
         self.topic_config: Dict[str, bool] = {}
         self.glob_patterns: List[Tuple[str, bool]] = []  # [(pattern, enabled), ...]
@@ -209,6 +228,14 @@ class RefereeSerialNode(Node):
         self.ui_tx_seq = 0
         self.ui_last_receiver_id = 0
         self.ui_initialized = False
+        self.sp_valid = False
+        self.sp_stat = 3
+        self.sp_stat_str = 'INTERRUPT'
+        self.sp_remain_precentage = 0
+        self.autoaim_enabled = False
+        self.fric_enabled = False
+        self.spin_enabled = False
+        self.spin_enalbed = False
 
         # 状态周期发布定时器
         self.state_timer = self.create_timer(1.0, self._publish_state_heartbeat)
@@ -567,6 +594,31 @@ class RefereeSerialNode(Node):
         next_baud = self.baud_candidates[self.baud_index]
         self._reopen_serial(next_baud)
 
+    def _supercap_ui_callback(self, msg):
+        self.sp_valid : bool = msg.cap_valid
+        self.sp_stat : int = msg.cap_status
+        self.sp_stat_str : str 
+        match self.sp_stat:
+            case 0:
+                self.sp_stat_str = 'DISCHARGE'
+            case 1: 
+                self.sp_stat_str = 'CHARGE'
+            case 2:
+                self.sp_stat_str = 'WAIT'
+            case _:
+                self.sp_stat_str = 'INTERRUPT'
+
+        self.sp_remain_precentage : int = max(0, min(100, int(msg.cap_remain_percentage)))
+
+
+
+    def _input_ui_callback(self, msg):
+        self.autoaim_enabled : bool = msg.autoaim_enabled
+        self.fric_enabled : bool = msg.friction_on
+        self.spin_enabled : bool = msg.spin_mode
+        self.spin_enalbed : bool = self.spin_enabled
+        pass
+
     def _publish_data(self, cmd_id: int, data: Any) -> None:
         """发布解析后的数据"""
         try:
@@ -656,6 +708,144 @@ class RefereeSerialNode(Node):
         )
         return line1[:30], line2[:30]
 
+    def _build_ui_status_text(self) -> str:
+        """生成监听状态文本"""
+        return (
+            f"FR:{int(self.fric_enabled)} "
+            f"RT:{int(self.spin_enabled)} "
+            f"SP:{int(self.sp_valid)} "
+            f"{self.sp_stat_str[:3]}:{self.sp_remain_precentage:3d}%"
+        )[:30]
+
+    def _build_ui_graphics(self, add_mode: bool) -> List[UIGraphic]:
+        """构建 UI 图形列表（圆形状态灯 + 电容进度条）"""
+        op = int(UIGraphicOperation.ADD if add_mode else UIGraphicOperation.MODIFY)
+        status_on = int(UIColor.GREEN)
+        status_off = int(UIColor.PURPLE_RED)
+        neutral = int(UIColor.CYAN)
+
+        progress_x = 100
+        progress_y = 80
+        progress_w = 400
+        progress_h = 30
+        pct = max(0, min(100, int(self.sp_remain_precentage)))
+        fill_w = int((progress_w - 8) * pct / 100.0)
+
+        if self.sp_stat == 1:  # CHARGE
+            cap_color = status_on
+        elif self.sp_stat == 0:  # DISCHARGE
+            cap_color = status_off
+        else:
+            cap_color = neutral
+
+        return [
+            UIGraphic(
+                name='AIM',
+                operation=op,
+                graphic_type=int(UIGraphicType.CIRCLE),
+                layer=self.ui_layer,
+                color=status_on if self.autoaim_enabled else status_off,
+                details_a=0,
+                details_b=0,
+                width=8,
+                start_x=960,
+                start_y=540,
+                details_c=100,
+                details_d=0,
+                details_e=0,
+            ),
+            UIGraphic(
+                name='PB0',
+                operation=op,
+                graphic_type=int(UIGraphicType.RECTANGLE),
+                layer=self.ui_layer,
+                color=int(UIColor.WHITE),
+                details_a=0,
+                details_b=0,
+                width=3,
+                start_x=progress_x,
+                start_y=progress_y,
+                details_c=0,
+                details_d=progress_x + progress_w,
+                details_e=progress_y + progress_h,
+            ),
+            UIGraphic(
+                name='PB1',
+                operation=op,
+                graphic_type=int(UIGraphicType.RECTANGLE),
+                layer=self.ui_layer,
+                color=cap_color,
+                details_a=0,
+                details_b=0,
+                width=2,
+                start_x=progress_x + 4,
+                start_y=progress_y + 4,
+                details_c=0,
+                details_d=progress_x + 4 + fill_w,
+                details_e=progress_y + progress_h - 4,
+            ),
+            UIGraphic(
+                name='FRI',
+                operation=op,
+                graphic_type=int(UIGraphicType.CIRCLE),
+                layer=self.ui_layer,
+                color=status_on if self.fric_enabled else status_off,
+                details_a=0,
+                details_b=0,
+                width=6,
+                start_x=560,
+                start_y=95,
+                details_c=18,
+                details_d=0,
+                details_e=0,
+            ),
+            UIGraphic(
+                name='SPN',
+                operation=op,
+                graphic_type=int(UIGraphicType.CIRCLE),
+                layer=self.ui_layer,
+                color=status_on if self.spin_enabled else status_off,
+                details_a=0,
+                details_b=0,
+                width=6,
+                start_x=620,
+                start_y=95,
+                details_c=18,
+                details_d=0,
+                details_e=0,
+            ),
+            UIGraphic(
+                name='CPV',
+                operation=op,
+                graphic_type=int(UIGraphicType.CIRCLE),
+                layer=self.ui_layer,
+                color=status_on if self.sp_valid else status_off,
+                details_a=0,
+                details_b=0,
+                width=6,
+                start_x=680,
+                start_y=95,
+                details_c=18,
+                details_d=0,
+                details_e=0,
+            ),
+            UIGraphic(
+                name='CHG',
+                operation=op,
+                graphic_type=int(UIGraphicType.CIRCLE),
+                layer=self.ui_layer,
+                color=cap_color,
+                details_a=0,
+                details_b=0,
+                width=6,
+                start_x=740,
+                start_y=95,
+                details_c=18,
+                details_d=0,
+                details_e=0,
+            ),
+        ]
+
     def _resolve_ui_receiver_id(self) -> int:
         """解析 UI 接收者选手端 ID"""
         if self.ui_target_client_id > 0:
@@ -733,6 +923,14 @@ class RefereeSerialNode(Node):
             receiver_id=receiver_id,
         )
 
+    def _send_ui_graphics(self, receiver_id: int, graphics: List[UIGraphic]) -> bool:
+        """发送图形绘制命令（表 1-26/1-28/1-29/1-30）"""
+        if not graphics:
+            return False
+        data_cmd_id = UIDrawingProtocol.choose_graphics_data_cmd_id(len(graphics))
+        payload = UIDrawingProtocol.pack_graphics_payload(graphics)
+        return self._send_ui_frame(data_cmd_id, payload, receiver_id)
+
     def _ui_timer_tick(self) -> None:
         """周期发送 UI 绘制数据"""
         if not self.ui_enable_tx:
@@ -748,7 +946,10 @@ class RefereeSerialNode(Node):
             self.ui_initialized = True
             self.ui_last_receiver_id = receiver_id
 
+        graphics = self._build_ui_graphics(add_mode=need_add)
+        self._send_ui_graphics(receiver_id, graphics)
         line1, line2 = self._build_ui_line_texts()
+        status_line = self._build_ui_status_text()
         self._send_ui_char_line(receiver_id, 'AS1', line1, self.ui_anchor_x, self.ui_anchor_y, add_mode=need_add)
         self._send_ui_char_line(
             receiver_id,
@@ -758,6 +959,7 @@ class RefereeSerialNode(Node):
             self.ui_anchor_y - self.ui_line_gap,
             add_mode=need_add,
         )
+        self._send_ui_char_line(receiver_id, 'ST1', status_line, 100, 125, add_mode=need_add)
 
     def _publish_self_color_from_robot_id(self, robot_id: int) -> None:
         """根据机器人ID发布自车颜色"""
