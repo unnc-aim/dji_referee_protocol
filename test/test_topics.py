@@ -47,10 +47,11 @@ try:
         EnemyBuff, EnemyJammingKey,
         Constraints, SelfColor,
     )
-    CUSTOM_MSGS_AVAILABLE = True
-except ImportError:
-    CUSTOM_MSGS_AVAILABLE = False
-    print("警告：无法导入自定义消息类型，将使用通用消息订阅")
+except ImportError as e:
+    print(f"错误：无法导入自定义消息类型: {e}")
+    print("请确保已 source ROS 2 工作空间:")
+    print("  source ~/sentry_ws/install/setup.bash")
+    sys.exit(1)
 
 
 # 颜色输出
@@ -200,27 +201,14 @@ class TopicTestNode(Node):
             self.message_counts[full_topic] = 0
 
             try:
-                if CUSTOM_MSGS_AVAILABLE and msg_type is not None:
-                    sub = self.create_subscription(
-                        msg_type,
-                        full_topic,
-                        lambda msg, tn=full_topic, desc=description: self._topic_callback(
-                            msg, tn, desc),
-                        self.qos_profile,
-                        callback_group=callback_group
-                    )
-                else:
-                    # 回退到通用订阅
-                    from rosidl_runtime_py.utilities import get_message
-                    from rclpy.serialization import deserialize_message
-                    sub = self.create_subscription(
-                        type(msg_type) if msg_type else object,
-                        full_topic,
-                        lambda msg, tn=full_topic, desc=description: self._topic_callback(
-                            msg, tn, desc),
-                        self.qos_profile,
-                        callback_group=callback_group
-                    )
+                sub = self.create_subscription(
+                    msg_type,
+                    full_topic,
+                    lambda msg, tn=full_topic, desc=description: self._topic_callback(
+                        msg, tn, desc),
+                    self.qos_profile,
+                    callback_group=callback_group
+                )
                 self._subscriptions_list.append(sub)
             except Exception as e:
                 self.get_logger().warn(f'无法订阅话题 {full_topic}: {e}')
@@ -231,16 +219,15 @@ class TopicTestNode(Node):
             self.message_counts[full_topic] = 0
 
             try:
-                if CUSTOM_MSGS_AVAILABLE and msg_type is not None:
-                    sub = self.create_subscription(
-                        msg_type,
-                        full_topic,
-                        lambda msg, tn=full_topic, desc=description: self._topic_callback(
-                            msg, tn, desc),
-                        self.qos_profile,
-                        callback_group=callback_group
-                    )
-                    self._subscriptions_list.append(sub)
+                sub = self.create_subscription(
+                    msg_type,
+                    full_topic,
+                    lambda msg, tn=full_topic, desc=description: self._topic_callback(
+                        msg, tn, desc),
+                    self.qos_profile,
+                    callback_group=callback_group
+                )
+                self._subscriptions_list.append(sub)
             except Exception as e:
                 self.get_logger().warn(f'无法订阅话题 {full_topic}: {e}')
 

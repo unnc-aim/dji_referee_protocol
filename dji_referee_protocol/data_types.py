@@ -9,7 +9,7 @@
 - 自动生成__repr__方法
 - 类型注解支持
 
-协议版本：V1.2.0
+协议版本：V1.3.0
 """
 
 from dataclasses import dataclass
@@ -110,8 +110,8 @@ class FieldEvent:
     包含场地相关的事件和状态信息，以1Hz频率发送。
 
     Attributes:
-        supply_area_1: 己方与资源区不重叠的补给区占领状态
-        supply_area_2: 己方与资源区重叠的补给区占领状态
+        supply_area_1: 己方补给区的占领状态
+        reserved_bit1: 保留位
         rmul_supply_area: 己方补给区的占领状态（仅RMUL适用）
         small_energy_mech: 己方小能量机关的激活状态 (0-2)
         big_energy_mech: 己方大能量机关的激活状态 (0-2)
@@ -125,7 +125,7 @@ class FieldEvent:
         base_buff_point: 己方基地增益点的占领状态
     """
     supply_area_1: bool = False
-    supply_area_2: bool = False
+    reserved_bit1: bool = False
     rmul_supply_area: bool = False
     small_energy_mech: int = 0
     big_energy_mech: int = 0
@@ -499,26 +499,52 @@ class MapRadarData:
     """
     选手端小地图接收雷达数据 (命令码: 0x0305)
 
-    频率上限为5Hz。
+    频率上限为5Hz。V1.3.0 版本数据长度为48字节，
+    包含对方和己方各6个机器人的位置坐标。
 
     Attributes:
-        target_robot_id: 目标机器人ID
-        target_x: 目标位置x坐标（单位：cm）
-        target_y: 目标位置y坐标（单位：cm）
-        特殊标识状态: 是否特殊标识
+        对方机器人坐标 (offset 0-23):
+        opponent_hero_x/y: 对方英雄机器人位置坐标（单位：cm）
+        opponent_engineer_x/y: 对方工程机器人位置坐标
+        opponent_infantry_3_x/y: 对方3号步兵机器人位置坐标
+        opponent_infantry_4_x/y: 对方4号步兵机器人位置坐标
+        opponent_aerial_x/y: 对方空中机器人位置坐标
+        opponent_sentry_x/y: 对方哨兵机器人位置坐标
+
+        己方机器人坐标 (offset 24-47):
+        ally_hero_x/y: 己方英雄机器人位置坐标
+        ally_engineer_x/y: 己方工程机器人位置坐标
+        ally_infantry_3_x/y: 己方3号步兵机器人位置坐标
+        ally_infantry_4_x/y: 己方4号步兵机器人位置坐标
+        ally_aerial_x/y: 己方空中机器人位置坐标
+        ally_sentry_x/y: 己方哨兵机器人位置坐标
     """
-    # 注意：实际数据包含多个机器人的位置信息
-    # 这里简化为单个机器人
-    hero_x: int = 0
-    hero_y: int = 0
-    engineer_x: int = 0
-    engineer_y: int = 0
-    infantry_3_x: int = 0
-    infantry_3_y: int = 0
-    infantry_4_x: int = 0
-    infantry_4_y: int = 0
-    sentry_x: int = 0
-    sentry_y: int = 0
+    # 对方机器人坐标 (offset 0-23)
+    opponent_hero_x: int = 0
+    opponent_hero_y: int = 0
+    opponent_engineer_x: int = 0
+    opponent_engineer_y: int = 0
+    opponent_infantry_3_x: int = 0
+    opponent_infantry_3_y: int = 0
+    opponent_infantry_4_x: int = 0
+    opponent_infantry_4_y: int = 0
+    opponent_aerial_x: int = 0
+    opponent_aerial_y: int = 0
+    opponent_sentry_x: int = 0
+    opponent_sentry_y: int = 0
+    # 己方机器人坐标 (offset 24-47)
+    ally_hero_x: int = 0
+    ally_hero_y: int = 0
+    ally_engineer_x: int = 0
+    ally_engineer_y: int = 0
+    ally_infantry_3_x: int = 0
+    ally_infantry_3_y: int = 0
+    ally_infantry_4_x: int = 0
+    ally_infantry_4_y: int = 0
+    ally_aerial_x: int = 0
+    ally_aerial_y: int = 0
+    ally_sentry_x: int = 0
+    ally_sentry_y: int = 0
 
 
 @dataclass

@@ -2,8 +2,8 @@
 # 以1Hz频率发送
 
 # 补给区状态
-bool supply_area_1           # 己方与资源区不重叠的补给区占领状态
-bool supply_area_2           # 己方与资源区重叠的补给区占领状态
+bool supply_area_1           # 己方补给区的占领状态
+# bit 1: 保留位
 bool rmul_supply_area        # 己方补给区的占领状态（仅RMUL适用）
 
 # 能量机关状态

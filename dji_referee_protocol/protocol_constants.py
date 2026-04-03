@@ -10,7 +10,7 @@
 
 所有常量严格按照官方协议文档定义。
 
-协议版本：V1.2.0
+协议版本：V1.3.0
 """
 
 from enum import IntEnum
@@ -274,7 +274,7 @@ class DataLength:
     RADAR_DECISION_SYNC: int = 1
     ROBOT_INTERACTION: int = 118
     MAP_CLICK_DATA: int = 15
-    MAP_RADAR_DATA: int = 24
+    MAP_RADAR_DATA: int = 48
     MAP_PATH_DATA: int = 103
     MAP_ROBOT_DATA: int = 34
 

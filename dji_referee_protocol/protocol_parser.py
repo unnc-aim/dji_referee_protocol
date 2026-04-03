@@ -11,7 +11,7 @@
 4. 根据命令码解析数据段
 5. 返回对应的数据类实例
 
-协议版本：V1.2.0
+协议版本：V1.3.0
 """
 
 import struct
@@ -290,7 +290,7 @@ class ProtocolParser:
             int(CommandID.SENTRY_DECISION_SYNC): 6,
             int(CommandID.RADAR_DECISION_SYNC): 1,
             int(CommandID.MAP_CLICK_DATA): 13,
-            int(CommandID.MAP_RADAR_DATA): 32,
+            int(CommandID.MAP_RADAR_DATA): 48,
             int(CommandID.MAP_PATH_DATA): 105,
             int(CommandID.MAP_ROBOT_DATA): 34,
             int(CommandID.ENEMY_POSITION): 24,
@@ -365,7 +365,7 @@ class ProtocolParser:
 
         return FieldEvent(
             supply_area_1=bool(value & (1 << 0)),
-            supply_area_2=bool(value & (1 << 1)),
+            reserved_bit1=bool(value & (1 << 1)),
             rmul_supply_area=bool(value & (1 << 2)),
             small_energy_mech=(value >> 3) & 0x03,
             big_energy_mech=(value >> 5) & 0x03,
@@ -585,13 +585,23 @@ class ProtocolParser:
 
     def _parse_map_radar_data(self, data: bytes) -> MapRadarData:
         """解析选手端小地图接收雷达数据 (0x0305)"""
-        # 偏移量8开始的数据
-        positions = struct.unpack('<12H', data[8:32])
+        # V1.3.0: 48字节，包含对方和己方各6个机器人坐标
+        positions = struct.unpack('<24H', data[:48])
+        # 对方 (offset 0-23)
+        # 己方 (offset 24-47)
         return MapRadarData(
-            infantry_3_x=positions[0], infantry_3_y=positions[1],
-            infantry_4_x=positions[2], infantry_4_y=positions[3],
-            # positions[4], positions[5] 保留
-            sentry_x=positions[6], sentry_y=positions[7]
+            opponent_hero_x=positions[0], opponent_hero_y=positions[1],
+            opponent_engineer_x=positions[2], opponent_engineer_y=positions[3],
+            opponent_infantry_3_x=positions[4], opponent_infantry_3_y=positions[5],
+            opponent_infantry_4_x=positions[6], opponent_infantry_4_y=positions[7],
+            opponent_aerial_x=positions[8], opponent_aerial_y=positions[9],
+            opponent_sentry_x=positions[10], opponent_sentry_y=positions[11],
+            ally_hero_x=positions[12], ally_hero_y=positions[13],
+            ally_engineer_x=positions[14], ally_engineer_y=positions[15],
+            ally_infantry_3_x=positions[16], ally_infantry_3_y=positions[17],
+            ally_infantry_4_x=positions[18], ally_infantry_4_y=positions[19],
+            ally_aerial_x=positions[20], ally_aerial_y=positions[21],
+            ally_sentry_x=positions[22], ally_sentry_y=positions[23]
         )
 
     def _parse_map_path_data(self, data: bytes) -> MapPathData:
