@@ -17,6 +17,7 @@ from dji_referee_protocol.msg import (
     ReadSuperCap,
     RobotPerformance,
     UnifiedInput,
+    ReadVT13RC
 )
 
 from .protocol_constants import OperatorClientID
@@ -42,7 +43,7 @@ class RefereeUINode(Node):
 
         # ==================== 声明参数 ====================
         self.declare_parameter("ui_enable_tx", True)
-        self.declare_parameter("ui_update_period_sec", 0.5)
+        self.declare_parameter("ui_update_period_sec", 0.1)
         self.declare_parameter("ui_target_client_id", 0x103)
         self.declare_parameter("ui_layer", 8)
         self.declare_parameter("ui_color", int(UIColor.SELF))
@@ -55,7 +56,7 @@ class RefereeUINode(Node):
 
         # ==================== 参数读取 ====================
         self.ui_enable_tx = bool(self.get_parameter("ui_enable_tx").value)
-        self.ui_update_period_sec = float(self.get_parameter("ui_update_period_sec").value or 0.5)
+        self.ui_update_period_sec = float(self.get_parameter("ui_update_period_sec").value or 0.1)
         self.ui_target_client_id = int(self.get_parameter("ui_target_client_id").value or 0)
         self.ui_layer = int(self.get_parameter("ui_layer").value or 8)
         self.ui_color = int(self.get_parameter("ui_color").value or int(UIColor.SELF))
@@ -88,6 +89,7 @@ class RefereeUINode(Node):
         self.ui_tx_seq = 0
         self.ui_last_receiver_id = 0
         self.ui_initialized = False
+        self.ui_update_count = 0
 
         # ==================== 发布器/订阅器 ====================
         self.ui_frame_pub = self.create_publisher(
@@ -101,6 +103,7 @@ class RefereeUINode(Node):
             self._robot_performance_callback,
             10,
         )
+
         self.allowed_shoot_sub = self.create_subscription(
             AllowedShoot,
             "/referee/ui/allowed_shoot",
@@ -416,6 +419,11 @@ class RefereeUINode(Node):
         receiver_id = self._resolve_ui_receiver_id()
         if receiver_id <= 0 or self.latest_robot_id <= 0:
             return
+
+        self.ui_update_count += 1
+        if self.ui_update_count >= 50:
+            self.ui_initialized = False
+            self.ui_update_count = 0
 
         need_add = (not self.ui_initialized) or (receiver_id != self.ui_last_receiver_id)
         if need_add:

@@ -554,6 +554,7 @@ class RefereeSerialNode(Node):
         if not msg.data:
             return
         frame = bytes(msg.data)
+        
         try:
             with self.serial_lock:
                 if not self.serial_port or not self.serial_port.is_open:
