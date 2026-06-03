@@ -16,8 +16,7 @@ from dji_referee_protocol.msg import (
     Constraints,
     ReadSuperCap,
     RobotPerformance,
-    UnifiedInput,
-    ReadVT13RC
+    UnifiedInput
 )
 
 from .protocol_constants import OperatorClientID
